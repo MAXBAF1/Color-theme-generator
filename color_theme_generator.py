@@ -102,7 +102,7 @@ class Window(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("High Contrast Theme Colors")
-        self.resize(1120, 560)
+        self.resize(1920, 900)
 
         self.original_colors = [
             (255, 0, 0),

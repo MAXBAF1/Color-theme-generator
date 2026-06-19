@@ -351,4 +351,5 @@ def generate_preset_palettes(limit=50):
         base_score, palette = remaining_palettes.pop(best_index)
         selected_palettes.append((base_score, palette))
 
+    selected_palettes.sort(key=lambda x: x[0], reverse=True)
     return selected_palettes
