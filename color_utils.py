@@ -172,6 +172,7 @@ def generate_contrast_palette(
     count=4,
     background=LIGHT_THEME_BACKGROUND,
     min_contrast_ratio=WCAG_AA_NORMAL_TEXT_RATIO,
+    hue_step=None,
 ):
     """Generate vivid, separated colors with sufficient, balanced contrast.
 
@@ -182,6 +183,7 @@ def generate_contrast_palette(
     keep their contrast ratios roughly close across the palette.
     """
     base_hue = hue_degrees(base_rgb)
+    hue_step = hue_step or (360.0 / count)
 
     def hls_candidate(hue, lightness, saturation):
         rr, gg, bb = colorsys.hls_to_rgb(
@@ -260,7 +262,7 @@ def generate_contrast_palette(
 
     palette = []
     for i in range(count):
-        ideal_hue = base_hue + i * (360.0 / count)
+        ideal_hue = base_hue + i * hue_step
         palette.append(choose_bright_candidate(ideal_hue, palette))
 
     return palette
@@ -271,26 +273,82 @@ def rgb_from_hls_degrees(hue, lightness=0.5, saturation=1.0):
     return (clamp(r * 255), clamp(g * 255), clamp(b * 255))
 
 
+def palette_distance(a, b):
+    """Return average nearest-color RGB distance between two palettes."""
+    return sum(min(rgb_distance(color, other) for other in b) for color in a) / len(a)
+
+
+def preset_diversity_penalty(palette, selected_palettes):
+    """Penalize palettes that are too close to previously selected presets."""
+    if not selected_palettes:
+        return 0.0
+
+    penalty = 0.0
+    for _score, selected_palette in selected_palettes:
+        distance = palette_distance(palette, selected_palette)
+        penalty += max(0.0, 110.0 - distance) * 10.0
+
+    return penalty
+
+
+def closest_palette_distance(palette, selected_palettes):
+    """Return the closest palette-level distance to already selected presets."""
+    if not selected_palettes:
+        return float("inf")
+
+    return min(
+        palette_distance(palette, selected)
+        for _score, selected in selected_palettes
+    )
+
+
 def generate_preset_palettes(limit=50):
-    """Compute ready-to-use bright palettes with quality scores."""
-    seed_hues = range(0, 360, 7)
+    """Compute ready-to-use bright palettes with quality and diversity scores."""
+    seed_hues = range(0, 360, 30)
+    hue_steps = (72.0, 84.0, 90.0, 108.0, 120.0)
     scored_palettes = []
+    seen_keys = set()
 
     for hue in seed_hues:
-        palette = generate_contrast_palette(rgb_from_hls_degrees(hue))
-        score = palette_quality_score(palette)
-        scored_palettes.append((score, palette))
+        for hue_step in hue_steps:
+            palette = generate_contrast_palette(
+                rgb_from_hls_degrees(hue), hue_step=hue_step
+            )
+            palette_key = tuple(rgb_to_hex(color) for color in palette)
+            if palette_key in seen_keys:
+                continue
 
-    scored_palettes.sort(key=lambda item: item[0], reverse=True)
-
-    unique_palettes = []
-    seen_keys = set()
-    for score, palette in scored_palettes:
-        palette_key = tuple(rgb_to_hex(color) for color in palette)
-        if palette_key not in seen_keys:
             seen_keys.add(palette_key)
-            unique_palettes.append((score, palette))
-        if len(unique_palettes) == limit:
+            score = palette_quality_score(palette)
+            scored_palettes.append((score, palette))
+
+    selected_palettes = []
+    remaining_palettes = scored_palettes.copy()
+
+    distance_thresholds = (80.0, 65.0, 50.0, 35.0, 0.0)
+    while remaining_palettes and len(selected_palettes) < limit:
+        best_index = None
+        best_adjusted_score = -float("inf")
+
+        for min_distance in distance_thresholds:
+            for index, (score, palette) in enumerate(remaining_palettes):
+                if closest_palette_distance(palette, selected_palettes) < min_distance:
+                    continue
+
+                adjusted_score = score - preset_diversity_penalty(
+                    palette, selected_palettes
+                )
+                if adjusted_score > best_adjusted_score:
+                    best_index = index
+                    best_adjusted_score = adjusted_score
+
+            if best_index is not None:
+                break
+
+        if best_index is None:
             break
 
-    return unique_palettes
+        base_score, palette = remaining_palettes.pop(best_index)
+        selected_palettes.append((base_score, palette))
+
+    return selected_palettes
