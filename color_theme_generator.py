@@ -49,16 +49,31 @@ class ColorRow(QWidget):
 class PresetRow(QWidget):
     def __init__(self, title, score, palette):
         super().__init__()
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"{title} · score {score:.1f}"))
 
-        for color in palette:
-            swatch = QFrame()
-            swatch.setFixedSize(70, 36)
-            swatch.setStyleSheet(f"background:{rgb_to_hex(color)};")
-            layout.addWidget(swatch)
+        colors_layout = QHBoxLayout()
+        layout.addLayout(colors_layout)
 
-        layout.addWidget(QLabel("  ".join(rgb_to_hex(color) for color in palette)))
+        for color in palette:
+            color_layout = QHBoxLayout()
+            swatch = QFrame()
+            swatch.setFixedSize(70, 60)
+            swatch.setStyleSheet(f"background:{rgb_to_hex(color)};")
+            color_layout.addWidget(swatch)
+
+            lum = figma_luminosity(color)
+            gray = grayscale_value(color)
+            gray_hex = f"#{gray:02X}{gray:02X}{gray:02X}"
+            description = QLabel(
+                f"HEX: {rgb_to_hex(color)}\n"
+                f"Hue: {hue_degrees(color):.1f}°\n"
+                f"Figma gray: {gray_hex} ({lum:.12f})\n"
+                f"Contrast on #FCFCFC: "
+                f"{contrast_ratio(color, LIGHT_THEME_BACKGROUND):.2f}:1"
+            )
+            color_layout.addWidget(description)
+            colors_layout.addLayout(color_layout)
 
 
 class Window(QWidget):
