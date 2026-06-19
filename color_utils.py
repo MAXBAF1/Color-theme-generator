@@ -126,44 +126,68 @@ def generate_contrast_palette(
     min_contrast_ratio=WCAG_AA_NORMAL_TEXT_RATIO,
 ):
     """
-    Generate colors with identical Figma-style grayscale and separated hues.
+    Generate bright colors with identical Figma-style grayscale and separated hues.
 
-    The selected base color defines the first hue. The shared blend-mode
+    The selected base color defines the first hue neighborhood. The shared blend-mode
     luminosity is darkened when needed so every color reaches the requested
     WCAG contrast ratio against the light-theme background. The other colors
-    are placed at equal hue intervals around the color wheel and generated
-    with high saturation while preserving the Figma grayscale value.
+    search around equal hue intervals and prefer high channel brightness, high
+    saturation, hue separation, and RGB distance while preserving grayscale.
     """
     base_target = figma_luminosity(base_rgb)
     base_hue = hue_degrees(base_rgb)
-    base_saturation = colorsys.rgb_to_hls(*[x / 255.0 for x in base_rgb])[2]
 
-    def build_palette(target):
-        first_color, _err = adjust_hls_to_luminance(base_hue, base_saturation, target)
-        palette = [first_color]
+    def choose_bright_candidate(ideal_hue, target, palette):
+        best = None
+        best_score = -float("inf")
 
-        for i in range(1, count):
-            hue = base_hue + i * (360.0 / count)
-            best = None
-            best_score = -float("inf")
+        for hue_offset in range(-45, 46, 15):
+            hue = ideal_hue + hue_offset
 
-            for saturation_step in range(100, 34, -5):
+            for saturation_step in range(100, 34, -10):
                 saturation = saturation_step / 100.0
                 candidate, err = adjust_hls_to_luminance(hue, saturation, target)
-                min_rgb_distance = min(
-                    rgb_distance(candidate, color) for color in palette
+                brightness = max(candidate)
+                candidate_contrast = contrast_ratio(candidate, background)
+                hue_penalty = abs(hue_offset) * 0.8
+
+                if palette:
+                    min_rgb_distance = min(
+                        rgb_distance(candidate, color) for color in palette
+                    )
+                    min_hue_distance = min(
+                        circular_hue_distance(
+                            hue_degrees(candidate), hue_degrees(color)
+                        )
+                        for color in palette
+                    )
+                else:
+                    min_rgb_distance = 0.0
+                    min_hue_distance = 0.0
+
+                hue_collision_penalty = max(0.0, 60.0 - min_hue_distance) * 10.0
+                score = (
+                    min_rgb_distance
+                    + min_hue_distance * 1.0
+                    + brightness * 2.5
+                    + candidate_contrast * 12.0
+                    - hue_penalty
+                    - hue_collision_penalty
+                    - err * 100_000
                 )
-                min_hue_distance = min(
-                    circular_hue_distance(hue_degrees(candidate), hue_degrees(color))
-                    for color in palette
-                )
-                score = min_rgb_distance + min_hue_distance - err * 100_000
 
                 if score > best_score:
                     best_score = score
                     best = candidate
 
-            palette.append(best)
+        return best
+
+    def build_palette(target):
+        palette = [choose_bright_candidate(base_hue, target, [])]
+
+        for i in range(1, count):
+            ideal_hue = base_hue + i * (360.0 / count)
+            palette.append(choose_bright_candidate(ideal_hue, target, palette))
 
         return palette
 
@@ -179,7 +203,7 @@ def generate_contrast_palette(
     low = 0.0
     high = base_target
     best_palette = build_palette(low)
-    for _ in range(12):
+    for _ in range(10):
         target = (low + high) / 2.0
         palette = build_palette(target)
 

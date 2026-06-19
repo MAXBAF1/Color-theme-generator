@@ -1,6 +1,7 @@
 import sys
 from itertools import combinations
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
@@ -77,6 +78,10 @@ class Window(QWidget):
 
         self.active_dialog = None
         self.active_index = None
+        self.pending_recalculate_index = None
+        self.recalculate_timer = QTimer(self)
+        self.recalculate_timer.setSingleShot(True)
+        self.recalculate_timer.timeout.connect(self.apply_pending_recalculate)
         self.generate_from_first_color()
 
     def open_picker(self, idx):
@@ -94,7 +99,11 @@ class Window(QWidget):
         rgb = (color.red(), color.green(), color.blue())
         self.original_colors[index] = rgb
 
-        if index == 0:
+        self.pending_recalculate_index = index
+        self.recalculate_timer.start(80)
+
+    def apply_pending_recalculate(self):
+        if self.pending_recalculate_index == 0:
             self.generate_from_first_color()
         else:
             self.recalculate_manual_palette()
