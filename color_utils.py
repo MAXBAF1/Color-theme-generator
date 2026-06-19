@@ -278,51 +278,58 @@ def palette_distance(a, b):
     return sum(min(rgb_distance(color, other) for other in b) for color in a) / len(a)
 
 
-def preset_diversity_penalty(palette, selected_palettes):
+def preset_diversity_penalty(palette, selected_palettes, selected_colors=None):
     """Penalize palettes that are too close to any previously selected presets."""
     if not selected_palettes:
         return 0.0
 
-    penalty = 0.0
-    for _score, selected_palette in selected_palettes:
-        distance = palette_distance(palette, selected_palette)
-        penalty += max(0.0, 110.0 - distance) * 10.0
-        closest_color_distance = min(
-            rgb_distance(color, selected_color)
-            for color in palette
-            for selected_color in selected_palette
-        )
-        penalty += max(0.0, 70.0 - closest_color_distance) * 30.0
-
-    return penalty
-
-
-def closest_palette_distance(palette, selected_palettes):
-    """Return the closest palette-level distance to already selected presets."""
-    if not selected_palettes:
-        return float("inf")
-
-    return min(
-        palette_distance(palette, selected)
-        for _score, selected in selected_palettes
-    )
-
-
-def closest_selected_color_distance(palette, selected_palettes):
-    """Return the closest color-level distance to all previous preset colors."""
-    selected_colors = [
+    selected_colors = selected_colors or [
         selected_color
         for _score, selected_palette in selected_palettes
         for selected_color in selected_palette
     ]
-    if not selected_colors:
-        return float("inf")
-
-    return min(
+    closest_color_distance = min(
         rgb_distance(color, selected_color)
         for color in palette
         for selected_color in selected_colors
     )
+
+    return max(0.0, 130.0 - closest_color_distance) * 45.0
+
+
+def unique_preset_color(color, used_colors):
+    """Return a vivid nearby color that has not appeared in earlier presets."""
+    if color not in used_colors:
+        return color
+
+    base_hue = hue_degrees(color)
+    fallback = color
+
+    for hue_offset in range(5, 181, 10):
+        for direction in (-1, 1):
+            hue = base_hue + hue_offset * direction
+            for saturation in (1.0, 0.94, 0.88):
+                for lightness in (0.32, 0.38, 0.44):
+                    candidate = rgb_from_hls_degrees(hue, lightness, saturation)
+                    if candidate in used_colors:
+                        continue
+
+                    candidate_contrast = contrast_ratio(
+                        candidate, LIGHT_THEME_BACKGROUND
+                    )
+                    if candidate_contrast < WCAG_AA_NORMAL_TEXT_RATIO:
+                        continue
+
+                    min_used_distance = min(
+                        rgb_distance(candidate, used_color)
+                        for used_color in used_colors
+                    )
+                    if fallback == color:
+                        fallback = candidate
+                    if min_used_distance >= 25.0:
+                        return candidate
+
+    return fallback
 
 
 def generate_preset_palettes(limit=50):
@@ -349,56 +356,37 @@ def generate_preset_palettes(limit=50):
     selected_palettes = []
     remaining_palettes = scored_palettes.copy()
 
-    distance_thresholds = (
-        (90.0, 70.0),
-        (75.0, 55.0),
-        (60.0, 40.0),
-        (45.0, 30.0),
-        (30.0, 25.0),
-    )
     while remaining_palettes and len(selected_palettes) < limit:
         best_index = None
         best_adjusted_score = -float("inf")
+        selected_colors = [
+            color
+            for _score, selected in selected_palettes
+            for color in selected
+        ]
 
-        for min_palette_distance, min_color_distance in distance_thresholds:
-            for index, (score, palette) in enumerate(remaining_palettes):
-                if (
-                    closest_palette_distance(palette, selected_palettes)
-                    < min_palette_distance
-                ):
-                    continue
-                if (
-                    closest_selected_color_distance(palette, selected_palettes)
-                    < min_color_distance
-                ):
-                    continue
-
-                adjusted_score = score - preset_diversity_penalty(
-                    palette, selected_palettes
-                )
-                if adjusted_score > best_adjusted_score:
-                    best_index = index
-                    best_adjusted_score = adjusted_score
-
-            if best_index is not None:
-                break
+        for index, (score, palette) in enumerate(remaining_palettes):
+            adjusted_score = score - preset_diversity_penalty(
+                palette, selected_palettes, selected_colors
+            )
+            if adjusted_score > best_adjusted_score:
+                best_index = index
+                best_adjusted_score = adjusted_score
 
         if best_index is None:
             break
 
-        base_score, palette = remaining_palettes.pop(best_index)
-        selected_palettes.append((base_score, palette))
+        _base_score, palette = remaining_palettes.pop(best_index)
+        unique_palette = []
+        used_colors = set(selected_colors)
+        for color in palette:
+            unique_color = unique_preset_color(color, used_colors)
+            unique_palette.append(unique_color)
+            used_colors.add(unique_color)
 
-        selected_colors = {
-            color
-            for _score, selected in selected_palettes
-            for color in selected
-        }
-        remaining_palettes = [
-            (score, candidate)
-            for score, candidate in remaining_palettes
-            if not any(color in selected_colors for color in candidate)
-        ]
+        selected_palettes.append(
+            (palette_quality_score(unique_palette), unique_palette)
+        )
 
     selected_palettes.sort(key=lambda x: x[0], reverse=True)
     return selected_palettes
