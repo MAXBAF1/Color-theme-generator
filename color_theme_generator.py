@@ -1,7 +1,7 @@
 import sys
 from itertools import combinations
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
@@ -12,10 +12,11 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
     QFrame,
+    QScrollArea,
+    QSizePolicy,
 )
 
 from color_utils import (
-    adjust_to_luminance,
     LIGHT_THEME_BACKGROUND,
     WCAG_AA_NORMAL_TEXT_RATIO,
     contrast_ratio,
@@ -29,6 +30,15 @@ from color_utils import (
 )
 
 
+def selectable_label(text=""):
+    label = QLabel(text)
+    label.setTextInteractionFlags(
+        Qt.TextInteractionFlag.TextSelectableByMouse
+        | Qt.TextInteractionFlag.TextSelectableByKeyboard
+    )
+    return label
+
+
 class ColorRow(QWidget):
     def __init__(self, title):
         super().__init__()
@@ -38,7 +48,7 @@ class ColorRow(QWidget):
         self.color_preview.setFixedSize(140, 60)
         self.gray_preview = QFrame()
         self.gray_preview.setFixedSize(140, 60)
-        self.label = QLabel()
+        self.label = selectable_label()
 
         layout.addWidget(self.button)
         layout.addWidget(self.color_preview)
@@ -47,25 +57,52 @@ class ColorRow(QWidget):
 
 
 class PresetRow(QWidget):
-    def __init__(self, title, palette):
+    def __init__(self, title, score, palette):
         super().__init__()
-        layout = QHBoxLayout(self)
-        layout.addWidget(QLabel(title))
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(4)
+        layout.addWidget(selectable_label(f"{title} · score {score:.1f}"))
+
+        colors_layout = QHBoxLayout()
+        colors_layout.setContentsMargins(0, 0, 0, 0)
+        colors_layout.setSpacing(10)
+        layout.addLayout(colors_layout)
 
         for color in palette:
+            color_widget = QWidget()
+            color_widget.setSizePolicy(
+                QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
+            )
+            color_layout = QHBoxLayout(color_widget)
+            color_layout.setContentsMargins(0, 0, 0, 0)
+            color_layout.setSpacing(4)
             swatch = QFrame()
-            swatch.setFixedSize(70, 36)
+            swatch.setFixedSize(70, 60)
             swatch.setStyleSheet(f"background:{rgb_to_hex(color)};")
-            layout.addWidget(swatch)
+            color_layout.addWidget(swatch)
 
-        layout.addWidget(QLabel("  ".join(rgb_to_hex(color) for color in palette)))
+            lum = figma_luminosity(color)
+            gray = grayscale_value(color)
+            gray_hex = f"#{gray:02X}{gray:02X}{gray:02X}"
+            description = selectable_label(
+                f"HEX: {rgb_to_hex(color)}\n"
+                f"Hue: {hue_degrees(color):.1f}°\n"
+                f"Figma gray: {gray_hex} ({lum:.12f})\n"
+                f"Contrast on #FCFCFC: "
+                f"{contrast_ratio(color, LIGHT_THEME_BACKGROUND):.2f}:1"
+            )
+            color_layout.addWidget(description)
+            colors_layout.addWidget(color_widget)
+
+        colors_layout.addStretch(1)
 
 
 class Window(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Equal Luminance Theme Colors")
-        self.resize(1120, 560)
+        self.setWindowTitle("High Contrast Theme Colors")
+        self.resize(1920, 900)
 
         self.original_colors = [
             (255, 0, 0),
@@ -75,14 +112,21 @@ class Window(QWidget):
         ]
         self.colors = self.original_colors.copy()
 
-        layout = QVBoxLayout(self)
+        main_layout = QVBoxLayout(self)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        scroll_area.setWidget(content)
+        main_layout.addWidget(scroll_area)
+
         self.generate_button = QPushButton(
             "Сгенерировать 4 максимально контрастных цвета от Цвета 1"
         )
         self.generate_button.clicked.connect(self.generate_from_first_color)
         layout.addWidget(self.generate_button)
 
-        self.info_label = QLabel()
+        self.info_label = selectable_label()
         layout.addWidget(self.info_label)
 
         self.rows = []
@@ -92,10 +136,12 @@ class Window(QWidget):
             layout.addWidget(row)
             self.rows.append(row)
 
-        layout.addWidget(QLabel("Готовые пресеты / палитры:"))
+        layout.addWidget(selectable_label("Готовые пресеты / палитры:"))
         self.preset_rows = []
-        for preset_index, palette in enumerate(generate_preset_palettes(), start=1):
-            preset_row = PresetRow(f"Пресет {preset_index}", palette)
+        for preset_index, (score, palette) in enumerate(
+            generate_preset_palettes(), start=1
+        ):
+            preset_row = PresetRow(f"Пресет {preset_index}", score, palette)
             layout.addWidget(preset_row)
             self.preset_rows.append(preset_row)
 
@@ -147,16 +193,13 @@ class Window(QWidget):
         self.update_ui()
 
     def recalculate_manual_palette(self):
-        self.colors[0] = self.original_colors[0]
-        target = figma_luminosity(self.colors[0])
-        for i in range(1, 4):
-            self.colors[i] = adjust_to_luminance(self.original_colors[i], target)
+        self.colors = self.original_colors.copy()
         self.update_ui()
 
     def update_ui(self):
-        target = figma_luminosity(self.colors[0])
-        gray = grayscale_value(self.colors[0])
-        gray_hex = f"#{gray:02X}{gray:02X}{gray:02X}"
+        gray_values = [grayscale_value(color) for color in self.colors]
+        min_gray = min(gray_values)
+        max_gray = max(gray_values)
 
         distances = [
             rgb_distance(self.colors[a], self.colors[b])
@@ -167,11 +210,14 @@ class Window(QWidget):
             contrast_ratio(color, LIGHT_THEME_BACKGROUND) for color in self.colors
         )
         self.info_label.setText(
-            "Все цвета приведены к одинаковому серому как в Figma Blend Mode Hue. "
+            "Ч/б значение больше не участвует в подборе: "
+            "главные критерии — достаточный и близкий контраст с фоном, "
+            "яркость и различимость цветов. "
             f"Фон светлой темы: {bg_hex}. "
             f"Минимальный контраст с фоном: {min_bg_contrast:.2f}:1 "
             f"(цель WCAG AA: {WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). "
-            f"Общий ч/б цвет: {gray_hex}. "
+            f"Диапазон ч/б справочно: #{min_gray:02X}{min_gray:02X}{min_gray:02X}–"
+            f"#{max_gray:02X}{max_gray:02X}{max_gray:02X}. "
             f"Минимальная RGB-дистанция между темами: {min(distances):.1f}."
         )
 
@@ -186,8 +232,7 @@ class Window(QWidget):
                 f"Hue: {hue_degrees(rgb):.1f}°\n"
                 f"Figma gray: {color_gray_hex} ({lum:.12f})\n"
                 f"Contrast on #FCFCFC: "
-                f"{contrast_ratio(rgb, LIGHT_THEME_BACKGROUND):.2f}:1\n"
-                f"Error: {abs(lum - target):.12f}"
+                f"{contrast_ratio(rgb, LIGHT_THEME_BACKGROUND):.2f}:1"
             )
 
 
