@@ -279,7 +279,7 @@ def palette_distance(a, b):
 
 
 def preset_diversity_penalty(palette, selected_palettes):
-    """Penalize palettes that are too close to previously selected presets."""
+    """Penalize palettes that are too close to any previously selected presets."""
     if not selected_palettes:
         return 0.0
 
@@ -287,6 +287,12 @@ def preset_diversity_penalty(palette, selected_palettes):
     for _score, selected_palette in selected_palettes:
         distance = palette_distance(palette, selected_palette)
         penalty += max(0.0, 110.0 - distance) * 10.0
+        closest_color_distance = min(
+            rgb_distance(color, selected_color)
+            for color in palette
+            for selected_color in selected_palette
+        )
+        penalty += max(0.0, 70.0 - closest_color_distance) * 30.0
 
     return penalty
 
@@ -302,10 +308,27 @@ def closest_palette_distance(palette, selected_palettes):
     )
 
 
+def closest_selected_color_distance(palette, selected_palettes):
+    """Return the closest color-level distance to all previous preset colors."""
+    selected_colors = [
+        selected_color
+        for _score, selected_palette in selected_palettes
+        for selected_color in selected_palette
+    ]
+    if not selected_colors:
+        return float("inf")
+
+    return min(
+        rgb_distance(color, selected_color)
+        for color in palette
+        for selected_color in selected_colors
+    )
+
+
 def generate_preset_palettes(limit=50):
     """Compute ready-to-use bright palettes with quality and diversity scores."""
-    seed_hues = range(0, 360, 30)
-    hue_steps = (72.0, 84.0, 90.0, 108.0, 120.0)
+    seed_hues = range(0, 360, 10)
+    hue_steps = tuple(float(step) for step in range(60, 151, 10))
     scored_palettes = []
     seen_keys = set()
 
@@ -322,17 +345,32 @@ def generate_preset_palettes(limit=50):
             score = palette_quality_score(palette)
             scored_palettes.append((score, palette))
 
+    scored_palettes.sort(key=lambda x: x[0], reverse=True)
     selected_palettes = []
     remaining_palettes = scored_palettes.copy()
 
-    distance_thresholds = (80.0, 65.0, 50.0, 35.0, 0.0)
+    distance_thresholds = (
+        (90.0, 70.0),
+        (75.0, 55.0),
+        (60.0, 40.0),
+        (45.0, 30.0),
+        (30.0, 25.0),
+    )
     while remaining_palettes and len(selected_palettes) < limit:
         best_index = None
         best_adjusted_score = -float("inf")
 
-        for min_distance in distance_thresholds:
+        for min_palette_distance, min_color_distance in distance_thresholds:
             for index, (score, palette) in enumerate(remaining_palettes):
-                if closest_palette_distance(palette, selected_palettes) < min_distance:
+                if (
+                    closest_palette_distance(palette, selected_palettes)
+                    < min_palette_distance
+                ):
+                    continue
+                if (
+                    closest_selected_color_distance(palette, selected_palettes)
+                    < min_color_distance
+                ):
                     continue
 
                 adjusted_score = score - preset_diversity_penalty(
@@ -350,6 +388,17 @@ def generate_preset_palettes(limit=50):
 
         base_score, palette = remaining_palettes.pop(best_index)
         selected_palettes.append((base_score, palette))
+
+        selected_colors = {
+            color
+            for _score, selected in selected_palettes
+            for color in selected
+        }
+        remaining_palettes = [
+            (score, candidate)
+            for score, candidate in remaining_palettes
+            if not any(color in selected_colors for color in candidate)
+        ]
 
     selected_palettes.sort(key=lambda x: x[0], reverse=True)
     return selected_palettes
