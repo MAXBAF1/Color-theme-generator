@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QFrame,
     QScrollArea,
+    QSizePolicy,
 )
 
 from color_utils import (
@@ -59,13 +60,23 @@ class PresetRow(QWidget):
     def __init__(self, title, score, palette):
         super().__init__()
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(4)
         layout.addWidget(selectable_label(f"{title} · score {score:.1f}"))
 
         colors_layout = QHBoxLayout()
+        colors_layout.setContentsMargins(0, 0, 0, 0)
+        colors_layout.setSpacing(10)
         layout.addLayout(colors_layout)
 
         for color in palette:
-            color_layout = QHBoxLayout()
+            color_widget = QWidget()
+            color_widget.setSizePolicy(
+                QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
+            )
+            color_layout = QHBoxLayout(color_widget)
+            color_layout.setContentsMargins(0, 0, 0, 0)
+            color_layout.setSpacing(4)
             swatch = QFrame()
             swatch.setFixedSize(70, 60)
             swatch.setStyleSheet(f"background:{rgb_to_hex(color)};")
@@ -82,7 +93,9 @@ class PresetRow(QWidget):
                 f"{contrast_ratio(color, LIGHT_THEME_BACKGROUND):.2f}:1"
             )
             color_layout.addWidget(description)
-            colors_layout.addLayout(color_layout)
+            colors_layout.addWidget(color_widget)
+
+        colors_layout.addStretch(1)
 
 
 class Window(QWidget):
