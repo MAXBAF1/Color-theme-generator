@@ -93,7 +93,7 @@ def adjust_hls_to_luminance(hue_degrees_value, saturation, target):
     best = (0, 0, 0)
     best_err = float("inf")
 
-    for _ in range(90):
+    for _ in range(32):
         mid = (lo + hi) / 2
         rr, gg, bb = colorsys.hls_to_rgb(h, mid, saturation)
         candidate = (clamp(rr * 255), clamp(gg * 255), clamp(bb * 255))
@@ -138,9 +138,7 @@ def generate_contrast_palette(
     base_hue = hue_degrees(base_rgb)
     base_saturation = colorsys.rgb_to_hls(*[x / 255.0 for x in base_rgb])[2]
 
-    best_palette = None
-    for step in range(101):
-        target = base_target * (1.0 - step / 100.0)
+    def build_palette(target):
         first_color, _err = adjust_hls_to_luminance(base_hue, base_saturation, target)
         palette = [first_color]
 
@@ -149,7 +147,7 @@ def generate_contrast_palette(
             best = None
             best_score = -float("inf")
 
-            for saturation_step in range(100, 34, -1):
+            for saturation_step in range(100, 34, -5):
                 saturation = saturation_step / 100.0
                 candidate, err = adjust_hls_to_luminance(hue, saturation, target)
                 min_rgb_distance = min(
@@ -167,11 +165,28 @@ def generate_contrast_palette(
 
             palette.append(best)
 
-        best_palette = palette
-        min_palette_contrast = min(
+        return palette
+
+    def passes_contrast(palette):
+        return min(
             contrast_ratio(color, background) for color in palette
-        )
-        if min_palette_contrast >= min_contrast_ratio:
-            return palette
+        ) >= min_contrast_ratio
+
+    brightest_palette = build_palette(base_target)
+    if passes_contrast(brightest_palette):
+        return brightest_palette
+
+    low = 0.0
+    high = base_target
+    best_palette = build_palette(low)
+    for _ in range(12):
+        target = (low + high) / 2.0
+        palette = build_palette(target)
+
+        if passes_contrast(palette):
+            low = target
+            best_palette = palette
+        else:
+            high = target
 
     return best_palette
