@@ -31,8 +31,9 @@ LIGHT_THEME_BACKGROUND = (252, 252, 252)
 WCAG_AA_NORMAL_TEXT_RATIO = 4.5
 RED_HUE_CENTER = 0.0
 RED_HUE_AVOID_DEGREES = 35.0
-BROWN_HUE_RANGE = (35.0, 60.0)
+BROWN_HUE_RANGE = (15.0, 65.0)
 BROWN_MIN_ORANGE_BRIGHTNESS = 210
+MUTED_MIN_VIVIDNESS = 90
 
 
 def figma_luminosity(rgb):
@@ -106,6 +107,22 @@ def brown_hue_penalty(rgb):
     return missing_brightness / BROWN_MIN_ORANGE_BRIGHTNESS
 
 
+def muted_color_penalty(rgb):
+    """Return a penalty for grayish colors that are not vivid enough for themes."""
+    vividness = max(rgb) - min(rgb)
+    missing_vividness = max(0, MUTED_MIN_VIVIDNESS - vividness)
+    return missing_vividness / MUTED_MIN_VIVIDNESS
+
+
+def disallowed_theme_color(rgb):
+    """Return True for brown or grayish colors that should not be selected."""
+    return (
+        red_hue_penalty(hue_degrees(rgb)) > 0
+        or brown_hue_penalty(rgb) > 0
+        or muted_color_penalty(rgb) > 0
+    )
+
+
 def pairwise_palette_distances(palette):
     """Return RGB and hue distances for every color pair in a palette."""
     hues = [hue_degrees(color) for color in palette]
@@ -137,6 +154,7 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
     contrast_spread = max(contrasts) - min_contrast
     red_penalty = sum(red_hue_penalty(hue) for hue in hues)
     brown_penalty = sum(brown_hue_penalty(color) for color in palette)
+    muted_penalty = sum(muted_color_penalty(color) for color in palette)
     return (
         min_rgb * 2.8
         + avg_rgb * 0.8
@@ -147,7 +165,8 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
         + min_contrast * 35.0
         - contrast_spread * 60.0
         - red_penalty * 35.0
-        - brown_penalty * 350.0
+        - brown_penalty * 1400.0
+        - muted_penalty * 1400.0
     )
 
 
@@ -226,6 +245,8 @@ def generate_contrast_palette(
                     red_penalty = red_hue_penalty(candidate_hue)
                     if red_penalty > 0:
                         continue
+                    if disallowed_theme_color(candidate):
+                        continue
 
                     hue_penalty = abs(hue_offset) * 0.8
                     score = (
@@ -281,11 +302,11 @@ def preset_diversity_penalty(palette, selected_palettes, selected_colors=None):
 
 def unique_preset_color(color, used_colors):
     """Return a vivid nearby color that has not appeared in earlier presets."""
-    if color not in used_colors:
+    if color not in used_colors and not disallowed_theme_color(color):
         return color
 
     base_hue = hue_degrees(color)
-    fallback = color
+    fallback = None
 
     for hue_offset in range(5, 181, 10):
         for direction in (-1, 1):
@@ -294,6 +315,8 @@ def unique_preset_color(color, used_colors):
                 for lightness in (0.32, 0.38, 0.44):
                     candidate = rgb_from_hls_degrees(hue, lightness, saturation)
                     if candidate in used_colors:
+                        continue
+                    if disallowed_theme_color(candidate):
                         continue
 
                     candidate_contrast = contrast_ratio(
@@ -306,12 +329,14 @@ def unique_preset_color(color, used_colors):
                         rgb_distance(candidate, used_color)
                         for used_color in used_colors
                     )
-                    if fallback == color:
+                    if fallback is None:
                         fallback = candidate
                     if min_used_distance >= 25.0:
                         return candidate
 
-    return fallback
+    if fallback is not None:
+        return fallback
+    return rgb_from_hls_degrees(base_hue + 120)
 
 
 def generate_preset_palettes(limit=50):
