@@ -47,10 +47,10 @@ class ColorRow(QWidget):
 
 
 class PresetRow(QWidget):
-    def __init__(self, title, palette):
+    def __init__(self, title, score, palette):
         super().__init__()
         layout = QHBoxLayout(self)
-        layout.addWidget(QLabel(title))
+        layout.addWidget(QLabel(f"{title} · score {score:.1f}"))
 
         for color in palette:
             swatch = QFrame()
@@ -94,8 +94,8 @@ class Window(QWidget):
 
         layout.addWidget(QLabel("Готовые пресеты / палитры:"))
         self.preset_rows = []
-        for preset_index, palette in enumerate(generate_preset_palettes(), start=1):
-            preset_row = PresetRow(f"Пресет {preset_index}", palette)
+        for preset_index, (score, palette) in enumerate(generate_preset_palettes(), start=1):
+            preset_row = PresetRow(f"Пресет {preset_index}", score, palette)
             layout.addWidget(preset_row)
             self.preset_rows.append(preset_row)
 
@@ -167,7 +167,8 @@ class Window(QWidget):
             contrast_ratio(color, LIGHT_THEME_BACKGROUND) for color in self.colors
         )
         self.info_label.setText(
-            "Все цвета приведены к одинаковому серому как в Figma Blend Mode Hue. "
+            "Цвета приведены к близкому серому как в Figma Blend Mode Hue; "
+            "небольшое расхождение разрешено ради контраста и яркости. "
             f"Фон светлой темы: {bg_hex}. "
             f"Минимальный контраст с фоном: {min_bg_contrast:.2f}:1 "
             f"(цель WCAG AA: {WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). "

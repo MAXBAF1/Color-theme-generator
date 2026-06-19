@@ -138,7 +138,7 @@ def adjust_hls_to_luminance(hue_degrees_value, saturation, target):
     best = (0, 0, 0)
     best_err = float("inf")
 
-    for _ in range(32):
+    for _ in range(12):
         mid = (lo + hi) / 2
         rr, gg, bb = colorsys.hls_to_rgb(h, mid, saturation)
         candidate = (clamp(rr * 255), clamp(gg * 255), clamp(bb * 255))
@@ -169,15 +169,18 @@ def generate_contrast_palette(
     count=4,
     background=LIGHT_THEME_BACKGROUND,
     min_contrast_ratio=WCAG_AA_NORMAL_TEXT_RATIO,
+    luminance_tolerance=0.035,
 ):
     """
-    Generate bright colors with identical Figma-style grayscale and separated hues.
+    Generate bright colors with similar Figma-style grayscale and separated hues.
 
     The selected base color defines the first hue neighborhood. The shared blend-mode
     luminosity is darkened when needed so every color reaches the requested
-    WCAG contrast ratio against the light-theme background. The other colors
-    search around equal hue intervals and prefer high channel brightness, high
-    saturation, hue separation, and RGB distance while preserving grayscale.
+    WCAG contrast ratio against the light-theme background. Candidate colors may
+    drift slightly from the shared grayscale target; that gives contrast and
+    brightness priority over perfectly identical black-and-white values. The
+    other colors search around equal hue intervals and prefer high channel
+    brightness, high saturation, hue separation, and RGB distance.
     """
     base_target = figma_luminosity(base_rgb)
     base_hue = hue_degrees(base_rgb)
@@ -185,51 +188,61 @@ def generate_contrast_palette(
     def choose_bright_candidate(ideal_hue, target, palette):
         best = None
         best_score = -float("inf")
+        target_variants = (
+            target,
+            max(0.0, target - luminance_tolerance),
+            min(1.0, target + luminance_tolerance),
+        )
 
-        for hue_offset in range(-45, 46, 15):
+        for hue_offset in range(-45, 46, 30):
             hue = ideal_hue + hue_offset
 
-            for saturation_step in range(100, 34, -10):
+            for saturation_step in (100, 85, 70, 55):
                 saturation = saturation_step / 100.0
-                candidate, err = adjust_hls_to_luminance(hue, saturation, target)
-                brightness = max(candidate)
-                candidate_contrast = contrast_ratio(candidate, background)
-                hue_penalty = abs(hue_offset) * 0.8
-                red_penalty = red_hue_penalty(hue_degrees(candidate))
-                if red_penalty > 0:
-                    continue
-
-                brown_penalty = brown_hue_penalty(candidate)
-
-                if palette:
-                    min_rgb_distance = min(
-                        rgb_distance(candidate, color) for color in palette
+                for candidate_target in target_variants:
+                    candidate, err = adjust_hls_to_luminance(
+                        hue, saturation, candidate_target
                     )
-                    min_hue_distance = min(
-                        circular_hue_distance(
-                            hue_degrees(candidate), hue_degrees(color)
+                    brightness = max(candidate)
+                    candidate_contrast = contrast_ratio(candidate, background)
+                    hue_penalty = abs(hue_offset) * 0.8
+                    gray_drift = abs(figma_luminosity(candidate) - target)
+                    red_penalty = red_hue_penalty(hue_degrees(candidate))
+                    if red_penalty > 0:
+                        continue
+
+                    brown_penalty = brown_hue_penalty(candidate)
+
+                    if palette:
+                        min_rgb_distance = min(
+                            rgb_distance(candidate, color) for color in palette
                         )
-                        for color in palette
+                        min_hue_distance = min(
+                            circular_hue_distance(
+                                hue_degrees(candidate), hue_degrees(color)
+                            )
+                            for color in palette
+                        )
+                    else:
+                        min_rgb_distance = 0.0
+                        min_hue_distance = 0.0
+
+                    hue_collision_penalty = max(0.0, 60.0 - min_hue_distance) * 10.0
+                    score = (
+                        min_rgb_distance
+                        + min_hue_distance * 1.0
+                        + brightness * 3.0
+                        + candidate_contrast * 18.0
+                        - hue_penalty
+                        - hue_collision_penalty
+                        - brown_penalty * 500.0
+                        - err * 20_000
+                        - gray_drift * 8_000
                     )
-                else:
-                    min_rgb_distance = 0.0
-                    min_hue_distance = 0.0
 
-                hue_collision_penalty = max(0.0, 60.0 - min_hue_distance) * 10.0
-                score = (
-                    min_rgb_distance
-                    + min_hue_distance * 1.0
-                    + brightness * 2.5
-                    + candidate_contrast * 12.0
-                    - hue_penalty
-                    - hue_collision_penalty
-                    - brown_penalty * 500.0
-                    - err * 100_000
-                )
-
-                if score > best_score:
-                    best_score = score
-                    best = candidate
+                    if score > best_score:
+                        best_score = score
+                        best = candidate
 
         return best
 
@@ -254,7 +267,7 @@ def generate_contrast_palette(
     low = 0.0
     high = base_target
     best_palette = build_palette(low)
-    for _ in range(10):
+    for _ in range(7):
         target = (low + high) / 2.0
         palette = build_palette(target)
 
@@ -272,9 +285,9 @@ def rgb_from_hls_degrees(hue, lightness=0.5, saturation=1.0):
     return (clamp(r * 255), clamp(g * 255), clamp(b * 255))
 
 
-def generate_preset_palettes(limit=5):
-    """Compute ready-to-use bright palettes while avoiding red and brown hues."""
-    seed_hues = (35, 55, 75, 100, 135, 165, 200, 230, 260, 290, 320)
+def generate_preset_palettes(limit=50):
+    """Compute ready-to-use bright palettes with quality scores."""
+    seed_hues = range(0, 360, 7)
     scored_palettes = []
 
     for hue in seed_hues:
@@ -285,14 +298,12 @@ def generate_preset_palettes(limit=5):
     scored_palettes.sort(key=lambda item: item[0], reverse=True)
 
     unique_palettes = []
-    for _score, palette in scored_palettes:
+    seen_keys = set()
+    for score, palette in scored_palettes:
         palette_key = tuple(rgb_to_hex(color) for color in palette)
-        existing_keys = {
-            tuple(rgb_to_hex(color) for color in existing)
-            for existing in unique_palettes
-        }
-        if palette_key not in existing_keys:
-            unique_palettes.append(palette)
+        if palette_key not in seen_keys:
+            seen_keys.add(palette_key)
+            unique_palettes.append((score, palette))
         if len(unique_palettes) == limit:
             break
 
