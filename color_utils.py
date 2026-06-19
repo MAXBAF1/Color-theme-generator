@@ -108,14 +108,18 @@ def brown_hue_penalty(rgb):
 
 def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
     hues = [hue_degrees(color) for color in palette]
-    min_rgb = min(
+    rgb_distances = [
         rgb_distance(a, b) for i, a in enumerate(palette) for b in palette[i + 1:]
-    )
-    min_hue = min(
+    ]
+    hue_distances = [
         circular_hue_distance(a, b)
         for i, a in enumerate(hues)
         for b in hues[i + 1:]
-    )
+    ]
+    min_rgb = min(rgb_distances)
+    avg_rgb = sum(rgb_distances) / len(rgb_distances)
+    min_hue = min(hue_distances)
+    avg_hue = sum(hue_distances) / len(hue_distances)
     avg_brightness = sum(max(color) for color in palette) / len(palette)
     contrasts = [contrast_ratio(color, background) for color in palette]
     min_contrast = min(contrasts)
@@ -123,9 +127,11 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
     red_penalty = sum(red_hue_penalty(hue) for hue in hues)
     brown_penalty = sum(brown_hue_penalty(color) for color in palette)
     return (
-        min_rgb
-        + min_hue * 2.0
-        + avg_brightness * 2.5
+        min_rgb * 2.8
+        + avg_rgb * 0.8
+        + min_hue * 5.0
+        + avg_hue * 1.2
+        + avg_brightness * 2.0
         + min_contrast * 35.0
         - contrast_spread * 60.0
         - red_penalty * 35.0
@@ -177,8 +183,7 @@ def generate_contrast_palette(
     """Generate vivid, separated colors with sufficient, balanced contrast.
 
     The generator no longer tries to equalize Figma/grayscale luminosity. It
-    treats black-and-white similarity as informational only and instead searches
-    for saturated colors that clear the requested contrast ratio on the light
+    searches for saturated colors that clear the requested contrast ratio on the light
     background, stay bright/vivid, remain visually distinct from each other, and
     keep their contrast ratios roughly close across the palette.
     """
@@ -238,11 +243,11 @@ def generate_contrast_palette(
                         min_hue_distance = 0.0
                         contrast_balance_penalty = 0.0
 
-                    hue_collision_penalty = max(0.0, 60.0 - min_hue_distance) * 12.0
+                    hue_collision_penalty = max(0.0, 75.0 - min_hue_distance) * 20.0
                     score = (
-                        min_rgb_distance * 1.2
-                        + min_hue_distance * 1.5
-                        + brightness * 2.4
+                        min_rgb_distance * 2.4
+                        + min_hue_distance * 3.2
+                        + brightness * 2.0
                         + vividness * 1.4
                         + candidate_contrast * 35.0
                         - contrast_balance_penalty * 120.0
