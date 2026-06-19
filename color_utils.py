@@ -29,6 +29,8 @@ def luminance(rgb):
 
 LIGHT_THEME_BACKGROUND = (252, 252, 252)
 WCAG_AA_NORMAL_TEXT_RATIO = 4.5
+RED_HUE_CENTER = 0.0
+RED_HUE_AVOID_DEGREES = 35.0
 
 
 def figma_luminosity(rgb):
@@ -83,6 +85,34 @@ def circular_hue_distance(a, b):
 
 def rgb_distance(a, b):
     return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
+
+
+def red_hue_penalty(hue):
+    """Return a penalty for explicit red hues used for errors in UI."""
+    distance = circular_hue_distance(hue % 360.0, RED_HUE_CENTER)
+    return max(0.0, RED_HUE_AVOID_DEGREES - distance)
+
+
+def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
+    hues = [hue_degrees(color) for color in palette]
+    min_rgb = min(
+        rgb_distance(a, b) for i, a in enumerate(palette) for b in palette[i + 1:]
+    )
+    min_hue = min(
+        circular_hue_distance(a, b)
+        for i, a in enumerate(hues)
+        for b in hues[i + 1:]
+    )
+    avg_brightness = sum(max(color) for color in palette) / len(palette)
+    min_contrast = min(contrast_ratio(color, background) for color in palette)
+    red_penalty = sum(red_hue_penalty(hue) for hue in hues)
+    return (
+        min_rgb
+        + min_hue * 2.0
+        + avg_brightness * 2.5
+        + min_contrast * 20.0
+        - red_penalty * 35.0
+    )
 
 
 def adjust_hls_to_luminance(hue_degrees_value, saturation, target):
@@ -150,6 +180,9 @@ def generate_contrast_palette(
                 brightness = max(candidate)
                 candidate_contrast = contrast_ratio(candidate, background)
                 hue_penalty = abs(hue_offset) * 0.8
+                red_penalty = red_hue_penalty(hue_degrees(candidate))
+                if red_penalty > 0:
+                    continue
 
                 if palette:
                     min_rgb_distance = min(
@@ -214,3 +247,35 @@ def generate_contrast_palette(
             high = target
 
     return best_palette
+
+
+def rgb_from_hls_degrees(hue, lightness=0.5, saturation=1.0):
+    r, g, b = colorsys.hls_to_rgb((hue % 360.0) / 360.0, lightness, saturation)
+    return (clamp(r * 255), clamp(g * 255), clamp(b * 255))
+
+
+def generate_preset_palettes(limit=5):
+    """Compute ready-to-use bright palettes while avoiding explicit red hues."""
+    seed_hues = (35, 55, 75, 100, 135, 165, 200, 230, 260, 290, 320)
+    scored_palettes = []
+
+    for hue in seed_hues:
+        palette = generate_contrast_palette(rgb_from_hls_degrees(hue))
+        score = palette_quality_score(palette)
+        scored_palettes.append((score, palette))
+
+    scored_palettes.sort(key=lambda item: item[0], reverse=True)
+
+    unique_palettes = []
+    for _score, palette in scored_palettes:
+        palette_key = tuple(rgb_to_hex(color) for color in palette)
+        existing_keys = {
+            tuple(rgb_to_hex(color) for color in existing)
+            for existing in unique_palettes
+        }
+        if palette_key not in existing_keys:
+            unique_palettes.append(palette)
+        if len(unique_palettes) == limit:
+            break
+
+    return unique_palettes

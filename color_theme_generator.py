@@ -20,6 +20,7 @@ from color_utils import (
     WCAG_AA_NORMAL_TEXT_RATIO,
     contrast_ratio,
     generate_contrast_palette,
+    generate_preset_palettes,
     figma_luminosity,
     grayscale_value,
     hue_degrees,
@@ -43,6 +44,21 @@ class ColorRow(QWidget):
         layout.addWidget(self.color_preview)
         layout.addWidget(self.gray_preview)
         layout.addWidget(self.label)
+
+
+class PresetRow(QWidget):
+    def __init__(self, title, palette):
+        super().__init__()
+        layout = QHBoxLayout(self)
+        layout.addWidget(QLabel(title))
+
+        for color in palette:
+            swatch = QFrame()
+            swatch.setFixedSize(70, 36)
+            swatch.setStyleSheet(f"background:{rgb_to_hex(color)};")
+            layout.addWidget(swatch)
+
+        layout.addWidget(QLabel("  ".join(rgb_to_hex(color) for color in palette)))
 
 
 class Window(QWidget):
@@ -75,6 +91,13 @@ class Window(QWidget):
             row.button.clicked.connect(lambda _, idx=i: self.open_picker(idx))
             layout.addWidget(row)
             self.rows.append(row)
+
+        layout.addWidget(QLabel("Готовые пресеты / палитры:"))
+        self.preset_rows = []
+        for preset_index, palette in enumerate(generate_preset_palettes(), start=1):
+            preset_row = PresetRow(f"Пресет {preset_index}", palette)
+            layout.addWidget(preset_row)
+            self.preset_rows.append(preset_row)
 
         self.active_dialog = None
         self.active_index = None
@@ -154,12 +177,14 @@ class Window(QWidget):
 
         for i, rgb in enumerate(self.colors):
             lum = figma_luminosity(rgb)
+            color_gray = grayscale_value(rgb)
+            color_gray_hex = f"#{color_gray:02X}{color_gray:02X}{color_gray:02X}"
             self.rows[i].color_preview.setStyleSheet(f"background:{rgb_to_hex(rgb)};")
-            self.rows[i].gray_preview.setStyleSheet(f"background:{gray_hex};")
+            self.rows[i].gray_preview.setStyleSheet(f"background:{color_gray_hex};")
             self.rows[i].label.setText(
                 f"HEX: {rgb_to_hex(rgb)}\n"
                 f"Hue: {hue_degrees(rgb):.1f}°\n"
-                f"Figma gray luminosity: {lum:.12f}\n"
+                f"Figma gray: {color_gray_hex} ({lum:.12f})\n"
                 f"Contrast on #FCFCFC: "
                 f"{contrast_ratio(rgb, LIGHT_THEME_BACKGROUND):.2f}:1\n"
                 f"Error: {abs(lum - target):.12f}"
