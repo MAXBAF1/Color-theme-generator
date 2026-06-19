@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
 )
 
 from color_utils import (
-    adjust_to_luminance,
     LIGHT_THEME_BACKGROUND,
     WCAG_AA_NORMAL_TEXT_RATIO,
     contrast_ratio,
@@ -65,7 +64,7 @@ class PresetRow(QWidget):
 class Window(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Equal Luminance Theme Colors")
+        self.setWindowTitle("High Contrast Theme Colors")
         self.resize(1120, 560)
 
         self.original_colors = [
@@ -157,16 +156,13 @@ class Window(QWidget):
         self.update_ui()
 
     def recalculate_manual_palette(self):
-        self.colors[0] = self.original_colors[0]
-        target = figma_luminosity(self.colors[0])
-        for i in range(1, 4):
-            self.colors[i] = adjust_to_luminance(self.original_colors[i], target)
+        self.colors = self.original_colors.copy()
         self.update_ui()
 
     def update_ui(self):
-        target = figma_luminosity(self.colors[0])
-        gray = grayscale_value(self.colors[0])
-        gray_hex = f"#{gray:02X}{gray:02X}{gray:02X}"
+        gray_values = [grayscale_value(color) for color in self.colors]
+        min_gray = min(gray_values)
+        max_gray = max(gray_values)
 
         distances = [
             rgb_distance(self.colors[a], self.colors[b])
@@ -177,12 +173,14 @@ class Window(QWidget):
             contrast_ratio(color, LIGHT_THEME_BACKGROUND) for color in self.colors
         )
         self.info_label.setText(
-            "Цвета приведены к близкому серому как в Figma Blend Mode Hue; "
-            "небольшое расхождение разрешено ради контраста и яркости. "
+            "Ч/б значение больше не участвует в подборе: "
+            "главные критерии — достаточный и близкий контраст с фоном, "
+            "яркость и различимость цветов. "
             f"Фон светлой темы: {bg_hex}. "
             f"Минимальный контраст с фоном: {min_bg_contrast:.2f}:1 "
             f"(цель WCAG AA: {WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). "
-            f"Общий ч/б цвет: {gray_hex}. "
+            f"Диапазон ч/б справочно: #{min_gray:02X}{min_gray:02X}{min_gray:02X}–"
+            f"#{max_gray:02X}{max_gray:02X}{max_gray:02X}. "
             f"Минимальная RGB-дистанция между темами: {min(distances):.1f}."
         )
 
@@ -197,8 +195,7 @@ class Window(QWidget):
                 f"Hue: {hue_degrees(rgb):.1f}°\n"
                 f"Figma gray: {color_gray_hex} ({lum:.12f})\n"
                 f"Contrast on #FCFCFC: "
-                f"{contrast_ratio(rgb, LIGHT_THEME_BACKGROUND):.2f}:1\n"
-                f"Error: {abs(lum - target):.12f}"
+                f"{contrast_ratio(rgb, LIGHT_THEME_BACKGROUND):.2f}:1"
             )
 
 

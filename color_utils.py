@@ -117,14 +117,17 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
         for b in hues[i + 1:]
     )
     avg_brightness = sum(max(color) for color in palette) / len(palette)
-    min_contrast = min(contrast_ratio(color, background) for color in palette)
+    contrasts = [contrast_ratio(color, background) for color in palette]
+    min_contrast = min(contrasts)
+    contrast_spread = max(contrasts) - min_contrast
     red_penalty = sum(red_hue_penalty(hue) for hue in hues)
     brown_penalty = sum(brown_hue_penalty(color) for color in palette)
     return (
         min_rgb
         + min_hue * 2.0
         + avg_brightness * 2.5
-        + min_contrast * 20.0
+        + min_contrast * 35.0
+        - contrast_spread * 60.0
         - red_penalty * 35.0
         - brown_penalty * 350.0
     )
@@ -169,48 +172,48 @@ def generate_contrast_palette(
     count=4,
     background=LIGHT_THEME_BACKGROUND,
     min_contrast_ratio=WCAG_AA_NORMAL_TEXT_RATIO,
-    luminance_tolerance=0.035,
 ):
-    """
-    Generate bright colors with similar Figma-style grayscale and separated hues.
+    """Generate vivid, separated colors with sufficient, balanced contrast.
 
-    The selected base color defines the first hue neighborhood. The shared blend-mode
-    luminosity is darkened when needed so every color reaches the requested
-    WCAG contrast ratio against the light-theme background. Candidate colors may
-    drift slightly from the shared grayscale target; that gives contrast and
-    brightness priority over perfectly identical black-and-white values. The
-    other colors search around equal hue intervals and prefer high channel
-    brightness, high saturation, hue separation, and RGB distance.
+    The generator no longer tries to equalize Figma/grayscale luminosity. It
+    treats black-and-white similarity as informational only and instead searches
+    for saturated colors that clear the requested contrast ratio on the light
+    background, stay bright/vivid, remain visually distinct from each other, and
+    keep their contrast ratios roughly close across the palette.
     """
-    base_target = figma_luminosity(base_rgb)
     base_hue = hue_degrees(base_rgb)
 
-    def choose_bright_candidate(ideal_hue, target, palette):
+    def hls_candidate(hue, lightness, saturation):
+        rr, gg, bb = colorsys.hls_to_rgb(
+            (hue % 360.0) / 360.0, lightness / 100.0, saturation / 100.0
+        )
+        return (clamp(rr * 255), clamp(gg * 255), clamp(bb * 255))
+
+    def candidate_vividness(candidate):
+        return max(candidate) - min(candidate)
+
+    def choose_bright_candidate(ideal_hue, palette):
         best = None
         best_score = -float("inf")
-        target_variants = (
-            target,
-            max(0.0, target - luminance_tolerance),
-            min(1.0, target + luminance_tolerance),
-        )
 
-        for hue_offset in range(-45, 46, 30):
+        for hue_offset in range(-45, 46, 15):
             hue = ideal_hue + hue_offset
 
-            for saturation_step in (100, 85, 70, 55):
-                saturation = saturation_step / 100.0
-                for candidate_target in target_variants:
-                    candidate, err = adjust_hls_to_luminance(
-                        hue, saturation, candidate_target
-                    )
-                    brightness = max(candidate)
+            for saturation in (100, 92, 84, 76):
+                for lightness in range(28, 57, 4):
+                    candidate = hls_candidate(hue, lightness, saturation)
                     candidate_contrast = contrast_ratio(candidate, background)
-                    hue_penalty = abs(hue_offset) * 0.8
-                    gray_drift = abs(figma_luminosity(candidate) - target)
-                    red_penalty = red_hue_penalty(hue_degrees(candidate))
+                    if candidate_contrast < min_contrast_ratio:
+                        continue
+
+                    candidate_hue = hue_degrees(candidate)
+                    red_penalty = red_hue_penalty(candidate_hue)
                     if red_penalty > 0:
                         continue
 
+                    brightness = max(candidate)
+                    vividness = candidate_vividness(candidate)
+                    hue_penalty = abs(hue_offset) * 0.8
                     brown_penalty = brown_hue_penalty(candidate)
 
                     if palette:
@@ -218,66 +221,49 @@ def generate_contrast_palette(
                             rgb_distance(candidate, color) for color in palette
                         )
                         min_hue_distance = min(
-                            circular_hue_distance(
-                                hue_degrees(candidate), hue_degrees(color)
-                            )
+                            circular_hue_distance(candidate_hue, hue_degrees(color))
                             for color in palette
+                        )
+                        existing_contrasts = [
+                            contrast_ratio(color, background) for color in palette
+                        ]
+                        contrast_balance_penalty = abs(
+                            candidate_contrast
+                            - sum(existing_contrasts) / len(existing_contrasts)
                         )
                     else:
                         min_rgb_distance = 0.0
                         min_hue_distance = 0.0
+                        contrast_balance_penalty = 0.0
 
-                    hue_collision_penalty = max(0.0, 60.0 - min_hue_distance) * 10.0
+                    hue_collision_penalty = max(0.0, 60.0 - min_hue_distance) * 12.0
                     score = (
-                        min_rgb_distance
-                        + min_hue_distance * 1.0
-                        + brightness * 3.0
-                        + candidate_contrast * 18.0
+                        min_rgb_distance * 1.2
+                        + min_hue_distance * 1.5
+                        + brightness * 2.4
+                        + vividness * 1.4
+                        + candidate_contrast * 35.0
+                        - contrast_balance_penalty * 120.0
                         - hue_penalty
                         - hue_collision_penalty
                         - brown_penalty * 500.0
-                        - err * 20_000
-                        - gray_drift * 8_000
                     )
 
                     if score > best_score:
                         best_score = score
                         best = candidate
 
+        if best is None:
+            return hls_candidate(ideal_hue, 35, 100)
+
         return best
 
-    def build_palette(target):
-        palette = [choose_bright_candidate(base_hue, target, [])]
+    palette = []
+    for i in range(count):
+        ideal_hue = base_hue + i * (360.0 / count)
+        palette.append(choose_bright_candidate(ideal_hue, palette))
 
-        for i in range(1, count):
-            ideal_hue = base_hue + i * (360.0 / count)
-            palette.append(choose_bright_candidate(ideal_hue, target, palette))
-
-        return palette
-
-    def passes_contrast(palette):
-        return min(
-            contrast_ratio(color, background) for color in palette
-        ) >= min_contrast_ratio
-
-    brightest_palette = build_palette(base_target)
-    if passes_contrast(brightest_palette):
-        return brightest_palette
-
-    low = 0.0
-    high = base_target
-    best_palette = build_palette(low)
-    for _ in range(7):
-        target = (low + high) / 2.0
-        palette = build_palette(target)
-
-        if passes_contrast(palette):
-            low = target
-            best_palette = palette
-        else:
-            high = target
-
-    return best_palette
+    return palette
 
 
 def rgb_from_hls_degrees(hue, lightness=0.5, saturation=1.0):
