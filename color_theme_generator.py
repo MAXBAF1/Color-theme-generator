@@ -1,7 +1,7 @@
 import sys
 from itertools import combinations
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
@@ -29,6 +29,15 @@ from color_utils import (
 )
 
 
+def selectable_label(text=""):
+    label = QLabel(text)
+    label.setTextInteractionFlags(
+        Qt.TextInteractionFlag.TextSelectableByMouse
+        | Qt.TextInteractionFlag.TextSelectableByKeyboard
+    )
+    return label
+
+
 class ColorRow(QWidget):
     def __init__(self, title):
         super().__init__()
@@ -38,7 +47,7 @@ class ColorRow(QWidget):
         self.color_preview.setFixedSize(140, 60)
         self.gray_preview = QFrame()
         self.gray_preview.setFixedSize(140, 60)
-        self.label = QLabel()
+        self.label = selectable_label()
 
         layout.addWidget(self.button)
         layout.addWidget(self.color_preview)
@@ -50,7 +59,7 @@ class PresetRow(QWidget):
     def __init__(self, title, score, palette):
         super().__init__()
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(f"{title} · score {score:.1f}"))
+        layout.addWidget(selectable_label(f"{title} · score {score:.1f}"))
 
         colors_layout = QHBoxLayout()
         layout.addLayout(colors_layout)
@@ -65,7 +74,7 @@ class PresetRow(QWidget):
             lum = figma_luminosity(color)
             gray = grayscale_value(color)
             gray_hex = f"#{gray:02X}{gray:02X}{gray:02X}"
-            description = QLabel(
+            description = selectable_label(
                 f"HEX: {rgb_to_hex(color)}\n"
                 f"Hue: {hue_degrees(color):.1f}°\n"
                 f"Figma gray: {gray_hex} ({lum:.12f})\n"
@@ -104,7 +113,7 @@ class Window(QWidget):
         self.generate_button.clicked.connect(self.generate_from_first_color)
         layout.addWidget(self.generate_button)
 
-        self.info_label = QLabel()
+        self.info_label = selectable_label()
         layout.addWidget(self.info_label)
 
         self.rows = []
@@ -114,7 +123,7 @@ class Window(QWidget):
             layout.addWidget(row)
             self.rows.append(row)
 
-        layout.addWidget(QLabel("Готовые пресеты / палитры:"))
+        layout.addWidget(selectable_label("Готовые пресеты / палитры:"))
         self.preset_rows = []
         for preset_index, (score, palette) in enumerate(
             generate_preset_palettes(), start=1
