@@ -81,7 +81,7 @@ class Window(QWidget):
         self.pending_recalculate_index = None
         self.recalculate_timer = QTimer(self)
         self.recalculate_timer.setSingleShot(True)
-        self.recalculate_timer.timeout.connect(self.apply_pending_recalculate)
+        self.recalculate_timer.timeout.connect(self.flush_pending_recalculate)
         self.generate_from_first_color()
 
     def open_picker(self, idx):
@@ -100,12 +100,22 @@ class Window(QWidget):
         self.original_colors[index] = rgb
 
         self.pending_recalculate_index = index
-        self.recalculate_timer.start(80)
+        if not self.recalculate_timer.isActive():
+            self.apply_pending_recalculate()
+            self.recalculate_timer.start(33)
+
+    def flush_pending_recalculate(self):
+        if self.pending_recalculate_index is not None:
+            self.apply_pending_recalculate()
+            self.recalculate_timer.start(33)
 
     def apply_pending_recalculate(self):
-        if self.pending_recalculate_index == 0:
+        index = self.pending_recalculate_index
+        self.pending_recalculate_index = None
+
+        if index == 0:
             self.generate_from_first_color()
-        else:
+        elif index is not None:
             self.recalculate_manual_palette()
 
     def generate_from_first_color(self):
