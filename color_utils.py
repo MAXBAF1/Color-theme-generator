@@ -155,11 +155,17 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
     red_penalty = sum(red_hue_penalty(hue) for hue in hues)
     brown_penalty = sum(brown_hue_penalty(color) for color in palette)
     muted_penalty = sum(muted_color_penalty(color) for color in palette)
+    if len(palette) >= 4:
+        rgb_separation_penalty = max(0.0, 150.0 - min_rgb)
+        hue_separation_penalty = max(0.0, 90.0 - min_hue)
+    else:
+        rgb_separation_penalty = 0.0
+        hue_separation_penalty = 0.0
     return (
-        min_rgb * 2.8
-        + avg_rgb * 0.8
-        + min_hue * 5.0
-        + avg_hue * 1.2
+        min_rgb * 6.0
+        + avg_rgb * 0.4
+        + min_hue * 10.0
+        + avg_hue * 0.8
         + avg_brightness * 2.0
         + avg_vividness * 1.4
         + min_contrast * 35.0
@@ -167,6 +173,8 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
         - red_penalty * 35.0
         - brown_penalty * 1400.0
         - muted_penalty * 1400.0
+        - rgb_separation_penalty * 18.0
+        - hue_separation_penalty * 24.0
     )
 
 
@@ -210,6 +218,7 @@ def generate_contrast_palette(
     background=LIGHT_THEME_BACKGROUND,
     min_contrast_ratio=WCAG_AA_NORMAL_TEXT_RATIO,
     hue_step=None,
+    beam_width=12,
 ):
     """Generate vivid, separated colors with sufficient, balanced contrast.
 
@@ -217,6 +226,8 @@ def generate_contrast_palette(
     searches for saturated colors that clear the requested contrast ratio on the
     light background, stay bright/vivid, remain visually distinct from each
     other, and keep their contrast ratios roughly close across the palette.
+    It uses beam search instead of a purely greedy pick so later colors can
+    recover combinations that have a better final shared palette score.
     """
     base_hue = hue_degrees(base_rgb)
     hue_step = hue_step or (360.0 / count)
@@ -227,15 +238,15 @@ def generate_contrast_palette(
         )
         return (clamp(rr * 255), clamp(gg * 255), clamp(bb * 255))
 
-    def choose_bright_candidate(ideal_hue, palette):
-        best = None
-        best_score = -float("inf")
+    def candidates_for_hue(ideal_hue):
+        candidates = []
+        seen = set()
 
         for hue_offset in range(-45, 46, 15):
             hue = ideal_hue + hue_offset
 
-            for saturation in (100, 92, 84, 76):
-                for lightness in range(28, 57, 4):
+            for saturation in (100, 88, 76):
+                for lightness in (28, 36, 44, 52):
                     candidate = hls_candidate(hue, lightness, saturation)
                     candidate_contrast = contrast_ratio(candidate, background)
                     if candidate_contrast < min_contrast_ratio:
@@ -248,27 +259,61 @@ def generate_contrast_palette(
                     if disallowed_theme_color(candidate):
                         continue
 
-                    hue_penalty = abs(hue_offset) * 0.8
-                    score = (
-                        palette_quality_score(palette + [candidate], background)
-                        - hue_penalty
-                    )
+                    if candidate in seen:
+                        continue
 
-                    if score > best_score:
-                        best_score = score
-                        best = candidate
+                    seen.add(candidate)
+                    candidates.append((abs(hue_offset) * 0.8, candidate))
 
-        if best is None:
-            return hls_candidate(ideal_hue, 35, 100)
+        return candidates or [(0.0, hls_candidate(ideal_hue, 35, 100))]
 
-        return best
+    candidate_groups = [
+        (base_hue + i * hue_step, candidates_for_hue(base_hue + i * hue_step))
+        for i in range(count)
+    ]
+    beams = [(0.0, [], 0.0)]
+    for ideal_hue, candidates in candidate_groups:
+        next_beams = []
+        for _score, palette, hue_penalty_total in beams:
+            for hue_penalty, candidate in candidates:
+                if candidate in palette:
+                    continue
 
-    palette = []
-    for i in range(count):
-        ideal_hue = base_hue + i * hue_step
-        palette.append(choose_bright_candidate(ideal_hue, palette))
+                next_palette = palette + [candidate]
+                next_hue_penalty = hue_penalty_total + hue_penalty
+                next_score = (
+                    palette_quality_score(next_palette, background)
+                    - next_hue_penalty
+                )
+                next_beams.append((next_score, next_palette, next_hue_penalty))
 
-    return palette
+        if not next_beams:
+            for _score, palette, hue_penalty_total in beams:
+                for _hue_penalty, candidate in candidates_for_hue(ideal_hue + 90):
+                    if candidate not in palette:
+                        next_palette = palette + [candidate]
+                        next_score = (
+                            palette_quality_score(next_palette, background)
+                            - hue_penalty_total
+                        )
+                        next_beams.append(
+                            (next_score, next_palette, hue_penalty_total)
+                        )
+                        break
+
+        next_beams.sort(key=lambda item: item[0], reverse=True)
+        beams = next_beams[:beam_width]
+
+    if not beams:
+        return [
+            hls_candidate(base_hue + i * hue_step, 35, 100)
+            for i in range(count)
+        ]
+
+    return max(
+        beams,
+        key=lambda item: palette_quality_score(item[1], background) - item[2],
+    )[1]
 
 
 def rgb_from_hls_degrees(hue, lightness=0.5, saturation=1.0):
@@ -341,8 +386,8 @@ def unique_preset_color(color, used_colors):
 
 def generate_preset_palettes(limit=50):
     """Compute ready-to-use bright palettes with quality and diversity scores."""
-    seed_hues = range(0, 360, 10)
-    hue_steps = tuple(float(step) for step in range(60, 151, 10))
+    seed_hues = range(0, 360, 15)
+    hue_steps = tuple(float(step) for step in range(60, 151, 15))
     scored_palettes = []
     seen_keys = set()
 
