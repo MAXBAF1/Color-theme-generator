@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
     QFrame,
+    QScrollArea,
 )
 
 from color_utils import (
@@ -75,7 +76,14 @@ class Window(QWidget):
         ]
         self.colors = self.original_colors.copy()
 
-        layout = QVBoxLayout(self)
+        main_layout = QVBoxLayout(self)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        scroll_area.setWidget(content)
+        main_layout.addWidget(scroll_area)
+
         self.generate_button = QPushButton(
             "Сгенерировать 4 максимально контрастных цвета от Цвета 1"
         )
@@ -94,7 +102,9 @@ class Window(QWidget):
 
         layout.addWidget(QLabel("Готовые пресеты / палитры:"))
         self.preset_rows = []
-        for preset_index, (score, palette) in enumerate(generate_preset_palettes(), start=1):
+        for preset_index, (score, palette) in enumerate(
+            generate_preset_palettes(), start=1
+        ):
             preset_row = PresetRow(f"Пресет {preset_index}", score, palette)
             layout.addWidget(preset_row)
             self.preset_rows.append(preset_row)
