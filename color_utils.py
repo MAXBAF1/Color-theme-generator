@@ -106,7 +106,8 @@ def brown_hue_penalty(rgb):
     return missing_brightness / BROWN_MIN_ORANGE_BRIGHTNESS
 
 
-def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
+def pairwise_palette_distances(palette):
+    """Return RGB and hue distances for every color pair in a palette."""
     hues = [hue_degrees(color) for color in palette]
     rgb_distances = [
         rgb_distance(a, b) for i, a in enumerate(palette) for b in palette[i + 1:]
@@ -116,11 +117,21 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
         for i, a in enumerate(hues)
         for b in hues[i + 1:]
     ]
-    min_rgb = min(rgb_distances)
-    avg_rgb = sum(rgb_distances) / len(rgb_distances)
-    min_hue = min(hue_distances)
-    avg_hue = sum(hue_distances) / len(hue_distances)
+    return rgb_distances, hue_distances
+
+
+def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
+    """Score a palette using the shared picker/preset quality formula."""
+    hues = [hue_degrees(color) for color in palette]
+    rgb_distances, hue_distances = pairwise_palette_distances(palette)
+    min_rgb = min(rgb_distances, default=0.0)
+    avg_rgb = sum(rgb_distances) / len(rgb_distances) if rgb_distances else 0.0
+    min_hue = min(hue_distances, default=0.0)
+    avg_hue = sum(hue_distances) / len(hue_distances) if hue_distances else 0.0
     avg_brightness = sum(max(color) for color in palette) / len(palette)
+    avg_vividness = (
+        sum(max(color) - min(color) for color in palette) / len(palette)
+    )
     contrasts = [contrast_ratio(color, background) for color in palette]
     min_contrast = min(contrasts)
     contrast_spread = max(contrasts) - min_contrast
@@ -132,6 +143,7 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
         + min_hue * 5.0
         + avg_hue * 1.2
         + avg_brightness * 2.0
+        + avg_vividness * 1.4
         + min_contrast * 35.0
         - contrast_spread * 60.0
         - red_penalty * 35.0
@@ -183,9 +195,9 @@ def generate_contrast_palette(
     """Generate vivid, separated colors with sufficient, balanced contrast.
 
     The generator no longer tries to equalize Figma/grayscale luminosity. It
-    searches for saturated colors that clear the requested contrast ratio on the light
-    background, stay bright/vivid, remain visually distinct from each other, and
-    keep their contrast ratios roughly close across the palette.
+    searches for saturated colors that clear the requested contrast ratio on the
+    light background, stay bright/vivid, remain visually distinct from each
+    other, and keep their contrast ratios roughly close across the palette.
     """
     base_hue = hue_degrees(base_rgb)
     hue_step = hue_step or (360.0 / count)
@@ -195,9 +207,6 @@ def generate_contrast_palette(
             (hue % 360.0) / 360.0, lightness / 100.0, saturation / 100.0
         )
         return (clamp(rr * 255), clamp(gg * 255), clamp(bb * 255))
-
-    def candidate_vividness(candidate):
-        return max(candidate) - min(candidate)
 
     def choose_bright_candidate(ideal_hue, palette):
         best = None
@@ -218,42 +227,10 @@ def generate_contrast_palette(
                     if red_penalty > 0:
                         continue
 
-                    brightness = max(candidate)
-                    vividness = candidate_vividness(candidate)
                     hue_penalty = abs(hue_offset) * 0.8
-                    brown_penalty = brown_hue_penalty(candidate)
-
-                    if palette:
-                        min_rgb_distance = min(
-                            rgb_distance(candidate, color) for color in palette
-                        )
-                        min_hue_distance = min(
-                            circular_hue_distance(candidate_hue, hue_degrees(color))
-                            for color in palette
-                        )
-                        existing_contrasts = [
-                            contrast_ratio(color, background) for color in palette
-                        ]
-                        contrast_balance_penalty = abs(
-                            candidate_contrast
-                            - sum(existing_contrasts) / len(existing_contrasts)
-                        )
-                    else:
-                        min_rgb_distance = 0.0
-                        min_hue_distance = 0.0
-                        contrast_balance_penalty = 0.0
-
-                    hue_collision_penalty = max(0.0, 75.0 - min_hue_distance) * 20.0
                     score = (
-                        min_rgb_distance * 2.4
-                        + min_hue_distance * 3.2
-                        + brightness * 2.0
-                        + vividness * 1.4
-                        + candidate_contrast * 35.0
-                        - contrast_balance_penalty * 120.0
+                        palette_quality_score(palette + [candidate], background)
                         - hue_penalty
-                        - hue_collision_penalty
-                        - brown_penalty * 500.0
                     )
 
                     if score > best_score:
