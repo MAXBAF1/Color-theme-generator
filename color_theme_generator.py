@@ -62,7 +62,16 @@ class PresetRow(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 4)
         layout.setSpacing(4)
-        layout.addWidget(selectable_label(f"{title} · score {score:.1f}"))
+        min_distance = min(
+            rgb_distance(a, b)
+            for a, b in combinations(palette, 2)
+        )
+        layout.addWidget(
+            selectable_label(
+                f"{title} · score {score:.1f} · "
+                f"Минимальная дистанция между цветами: {min_distance:.1f}"
+            )
+        )
 
         colors_layout = QHBoxLayout()
         colors_layout.setContentsMargins(0, 0, 0, 0)
