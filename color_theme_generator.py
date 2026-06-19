@@ -19,9 +19,9 @@ from color_utils import (
     WCAG_AA_NORMAL_TEXT_RATIO,
     contrast_ratio,
     generate_contrast_palette,
+    figma_luminosity,
     grayscale_value,
     hue_degrees,
-    luminance,
     rgb_distance,
     rgb_to_hex,
 )
@@ -106,13 +106,13 @@ class Window(QWidget):
 
     def recalculate_manual_palette(self):
         self.colors[0] = self.original_colors[0]
-        target = luminance(self.colors[0])
+        target = figma_luminosity(self.colors[0])
         for i in range(1, 4):
             self.colors[i] = adjust_to_luminance(self.original_colors[i], target)
         self.update_ui()
 
     def update_ui(self):
-        target = luminance(self.colors[0])
+        target = figma_luminosity(self.colors[0])
         gray = grayscale_value(self.colors[0])
         gray_hex = f"#{gray:02X}{gray:02X}{gray:02X}"
 
@@ -125,7 +125,7 @@ class Window(QWidget):
             contrast_ratio(color, LIGHT_THEME_BACKGROUND) for color in self.colors
         )
         self.info_label.setText(
-            "Все цвета приведены к одинаковой WCAG relative luminance. "
+            "Все цвета приведены к одинаковому серому как в Figma Blend Mode Hue. "
             f"Фон светлой темы: {bg_hex}. "
             f"Минимальный контраст с фоном: {min_bg_contrast:.2f}:1 "
             f"(цель WCAG AA: {WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). "
@@ -134,13 +134,13 @@ class Window(QWidget):
         )
 
         for i, rgb in enumerate(self.colors):
-            lum = luminance(rgb)
+            lum = figma_luminosity(rgb)
             self.rows[i].color_preview.setStyleSheet(f"background:{rgb_to_hex(rgb)};")
             self.rows[i].gray_preview.setStyleSheet(f"background:{gray_hex};")
             self.rows[i].label.setText(
                 f"HEX: {rgb_to_hex(rgb)}\n"
                 f"Hue: {hue_degrees(rgb):.1f}°\n"
-                f"Luminance: {lum:.12f}\n"
+                f"Figma gray luminosity: {lum:.12f}\n"
                 f"Contrast on #FCFCFC: "
                 f"{contrast_ratio(rgb, LIGHT_THEME_BACKGROUND):.2f}:1\n"
                 f"Error: {abs(lum - target):.12f}"

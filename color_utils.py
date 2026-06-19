@@ -31,9 +31,15 @@ LIGHT_THEME_BACKGROUND = (252, 252, 252)
 WCAG_AA_NORMAL_TEXT_RATIO = 4.5
 
 
+def figma_luminosity(rgb):
+    """Return the non-linear RGB luminosity used by W3C/Figma blend modes."""
+    r, g, b = [x / 255.0 for x in rgb]
+    return 0.3 * r + 0.59 * g + 0.11 * b
+
+
 def grayscale_value(rgb):
-    """Return the sRGB gray channel that has the same relative luminance."""
-    return clamp(linear_to_srgb(luminance(rgb)) * 255)
+    """Return the gray channel produced by Figma-style blend-mode luminosity."""
+    return clamp(figma_luminosity(rgb) * 255)
 
 
 def contrast_ratio(foreground, background):
@@ -56,7 +62,7 @@ def readable_target_luminance(
     background=LIGHT_THEME_BACKGROUND,
     min_ratio=WCAG_AA_NORMAL_TEXT_RATIO,
 ):
-    """Darken the shared palette luminance enough to meet WCAG AA on background."""
+    """Legacy WCAG relative-luminance ceiling for contrast calculations."""
     return min(luminance(base_rgb), max_luminance_for_contrast(background, min_ratio))
 
 
@@ -80,7 +86,7 @@ def rgb_distance(a, b):
 
 
 def adjust_hls_to_luminance(hue_degrees_value, saturation, target):
-    """Find the HLS lightness that produces the requested WCAG luminance."""
+    """Find HLS lightness that produces requested Figma blend luminosity."""
     h = (hue_degrees_value % 360.0) / 360.0
     lo = 0.0
     hi = 1.0
@@ -91,7 +97,7 @@ def adjust_hls_to_luminance(hue_degrees_value, saturation, target):
         mid = (lo + hi) / 2
         rr, gg, bb = colorsys.hls_to_rgb(h, mid, saturation)
         candidate = (clamp(rr * 255), clamp(gg * 255), clamp(bb * 255))
-        lum = luminance(candidate)
+        lum = figma_luminosity(candidate)
         err = abs(lum - target)
 
         if err < best_err:
@@ -120,39 +126,52 @@ def generate_contrast_palette(
     min_contrast_ratio=WCAG_AA_NORMAL_TEXT_RATIO,
 ):
     """
-    Generate colors with identical relative luminance and separated hues.
+    Generate colors with identical Figma-style grayscale and separated hues.
 
-    The selected base color defines the first hue. The shared luminance is
-    darkened when needed so every color reaches the requested WCAG contrast
-    ratio against the light-theme background. The other colors are placed at
-    equal hue intervals around the color wheel and generated with high
-    saturation while preserving that readable luminance.
+    The selected base color defines the first hue. The shared blend-mode
+    luminosity is darkened when needed so every color reaches the requested
+    WCAG contrast ratio against the light-theme background. The other colors
+    are placed at equal hue intervals around the color wheel and generated
+    with high saturation while preserving the Figma grayscale value.
     """
-    target = readable_target_luminance(base_rgb, background, min_contrast_ratio)
+    base_target = figma_luminosity(base_rgb)
     base_hue = hue_degrees(base_rgb)
     base_saturation = colorsys.rgb_to_hls(*[x / 255.0 for x in base_rgb])[2]
-    first_color, _err = adjust_hls_to_luminance(base_hue, base_saturation, target)
-    palette = [first_color]
 
-    for i in range(1, count):
-        hue = base_hue + i * (360.0 / count)
-        best = None
-        best_score = -float("inf")
+    best_palette = None
+    for step in range(101):
+        target = base_target * (1.0 - step / 100.0)
+        first_color, _err = adjust_hls_to_luminance(base_hue, base_saturation, target)
+        palette = [first_color]
 
-        for saturation_step in range(100, 34, -1):
-            saturation = saturation_step / 100.0
-            candidate, err = adjust_hls_to_luminance(hue, saturation, target)
-            min_rgb_distance = min(rgb_distance(candidate, color) for color in palette)
-            min_hue_distance = min(
-                circular_hue_distance(hue_degrees(candidate), hue_degrees(color))
-                for color in palette
-            )
-            score = min_rgb_distance + min_hue_distance - err * 100_000
+        for i in range(1, count):
+            hue = base_hue + i * (360.0 / count)
+            best = None
+            best_score = -float("inf")
 
-            if score > best_score:
-                best_score = score
-                best = candidate
+            for saturation_step in range(100, 34, -1):
+                saturation = saturation_step / 100.0
+                candidate, err = adjust_hls_to_luminance(hue, saturation, target)
+                min_rgb_distance = min(
+                    rgb_distance(candidate, color) for color in palette
+                )
+                min_hue_distance = min(
+                    circular_hue_distance(hue_degrees(candidate), hue_degrees(color))
+                    for color in palette
+                )
+                score = min_rgb_distance + min_hue_distance - err * 100_000
 
-        palette.append(best)
+                if score > best_score:
+                    best_score = score
+                    best = candidate
 
-    return palette
+            palette.append(best)
+
+        best_palette = palette
+        min_palette_contrast = min(
+            contrast_ratio(color, background) for color in palette
+        )
+        if min_palette_contrast >= min_contrast_ratio:
+            return palette
+
+    return best_palette
