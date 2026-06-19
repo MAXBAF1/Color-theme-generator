@@ -15,6 +15,9 @@ from PyQt6.QtWidgets import (
 
 from color_utils import (
     adjust_to_luminance,
+    LIGHT_THEME_BACKGROUND,
+    WCAG_AA_NORMAL_TEXT_RATIO,
+    contrast_ratio,
     generate_contrast_palette,
     grayscale_value,
     hue_degrees,
@@ -117,8 +120,15 @@ class Window(QWidget):
             rgb_distance(self.colors[a], self.colors[b])
             for a, b in combinations(range(4), 2)
         ]
+        bg_hex = rgb_to_hex(LIGHT_THEME_BACKGROUND)
+        min_bg_contrast = min(
+            contrast_ratio(color, LIGHT_THEME_BACKGROUND) for color in self.colors
+        )
         self.info_label.setText(
             "Все цвета приведены к одинаковой WCAG relative luminance. "
+            f"Фон светлой темы: {bg_hex}. "
+            f"Минимальный контраст с фоном: {min_bg_contrast:.2f}:1 "
+            f"(цель WCAG AA: {WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). "
             f"Общий ч/б цвет: {gray_hex}. "
             f"Минимальная RGB-дистанция между темами: {min(distances):.1f}."
         )
@@ -131,6 +141,8 @@ class Window(QWidget):
                 f"HEX: {rgb_to_hex(rgb)}\n"
                 f"Hue: {hue_degrees(rgb):.1f}°\n"
                 f"Luminance: {lum:.12f}\n"
+                f"Contrast on #FCFCFC: "
+                f"{contrast_ratio(rgb, LIGHT_THEME_BACKGROUND):.2f}:1\n"
                 f"Error: {abs(lum - target):.12f}"
             )
 

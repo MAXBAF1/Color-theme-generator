@@ -27,9 +27,37 @@ def luminance(rgb):
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
+LIGHT_THEME_BACKGROUND = (252, 252, 252)
+WCAG_AA_NORMAL_TEXT_RATIO = 4.5
+
+
 def grayscale_value(rgb):
     """Return the sRGB gray channel that has the same relative luminance."""
     return clamp(linear_to_srgb(luminance(rgb)) * 255)
+
+
+def contrast_ratio(foreground, background):
+    """Return WCAG contrast ratio for two RGB colors."""
+    lum1 = luminance(foreground)
+    lum2 = luminance(background)
+    lighter = max(lum1, lum2)
+    darker = min(lum1, lum2)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def max_luminance_for_contrast(background, min_ratio):
+    """Highest foreground luminance that reaches min_ratio on a light background."""
+    background_lum = luminance(background)
+    return max(0.0, ((background_lum + 0.05) / min_ratio) - 0.05)
+
+
+def readable_target_luminance(
+    base_rgb,
+    background=LIGHT_THEME_BACKGROUND,
+    min_ratio=WCAG_AA_NORMAL_TEXT_RATIO,
+):
+    """Darken the shared palette luminance enough to meet WCAG AA on background."""
+    return min(luminance(base_rgb), max_luminance_for_contrast(background, min_ratio))
 
 
 def rgb_to_hex(rgb):
@@ -85,17 +113,26 @@ def adjust_to_luminance(rgb, target):
     return adjusted
 
 
-def generate_contrast_palette(base_rgb, count=4):
+def generate_contrast_palette(
+    base_rgb,
+    count=4,
+    background=LIGHT_THEME_BACKGROUND,
+    min_contrast_ratio=WCAG_AA_NORMAL_TEXT_RATIO,
+):
     """
-    Generate colors with identical relative luminance and maximally separated hues.
+    Generate colors with identical relative luminance and separated hues.
 
-    The first color is kept exactly as selected. The other colors are placed at
-    equal hue intervals around the color wheel and generated with the highest
-    available saturation that can still be adjusted to the base luminance.
+    The selected base color defines the first hue. The shared luminance is
+    darkened when needed so every color reaches the requested WCAG contrast
+    ratio against the light-theme background. The other colors are placed at
+    equal hue intervals around the color wheel and generated with high
+    saturation while preserving that readable luminance.
     """
-    target = luminance(base_rgb)
+    target = readable_target_luminance(base_rgb, background, min_contrast_ratio)
     base_hue = hue_degrees(base_rgb)
-    palette = [base_rgb]
+    base_saturation = colorsys.rgb_to_hls(*[x / 255.0 for x in base_rgb])[2]
+    first_color, _err = adjust_hls_to_luminance(base_hue, base_saturation, target)
+    palette = [first_color]
 
     for i in range(1, count):
         hue = base_hue + i * (360.0 / count)
