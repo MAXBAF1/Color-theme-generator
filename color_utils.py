@@ -34,6 +34,8 @@ RED_HUE_AVOID_DEGREES = 35.0
 BROWN_HUE_RANGE = (15.0, 65.0)
 BROWN_MIN_ORANGE_BRIGHTNESS = 210
 MUTED_MIN_VIVIDNESS = 90
+MIN_THEME_BRIGHTNESS = 150
+QUALITY_SCORE_BASELINE = 6000.0
 
 
 def figma_luminosity(rgb):
@@ -117,7 +119,8 @@ def muted_color_penalty(rgb):
 def disallowed_theme_color(rgb):
     """Return True for brown or grayish colors that should not be selected."""
     return (
-        red_hue_penalty(hue_degrees(rgb)) > 0
+        max(rgb) < MIN_THEME_BRIGHTNESS
+        or red_hue_penalty(hue_degrees(rgb)) > 0
         or brown_hue_penalty(rgb) > 0
         or muted_color_penalty(rgb) > 0
     )
@@ -166,7 +169,8 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
         hue_separation_penalty = 0.0
         brightness_balance_penalty = 0.0
     return (
-        min_rgb * 8.0
+        QUALITY_SCORE_BASELINE
+        + min_rgb * 8.0
         + avg_rgb * 0.4
         + min_hue * 12.0
         + avg_hue * 0.8
@@ -270,7 +274,7 @@ def generate_contrast_palette(
                     seen.add(candidate)
                     candidates.append((abs(hue_offset) * 0.8, candidate))
 
-        return candidates or [(0.0, hls_candidate(ideal_hue, 35, 100))]
+        return candidates
 
     candidate_groups = [
         (base_hue + i * hue_step, candidates_for_hue(base_hue + i * hue_step))
@@ -294,26 +298,36 @@ def generate_contrast_palette(
 
         if not next_beams:
             for _score, palette, hue_penalty_total in beams:
-                for _hue_penalty, candidate in candidates_for_hue(ideal_hue + 90):
-                    if candidate not in palette:
-                        next_palette = palette + [candidate]
-                        next_score = (
-                            palette_quality_score(next_palette, background)
-                            - hue_penalty_total
-                        )
-                        next_beams.append(
-                            (next_score, next_palette, hue_penalty_total)
-                        )
+                for fallback_offset in (90, 180, 270):
+                    fallback_candidates = candidates_for_hue(
+                        ideal_hue + fallback_offset
+                    )
+                    for _hue_penalty, candidate in fallback_candidates:
+                        if candidate not in palette:
+                            next_palette = palette + [candidate]
+                            next_score = (
+                                palette_quality_score(next_palette, background)
+                                - hue_penalty_total
+                            )
+                            next_beams.append(
+                                (next_score, next_palette, hue_penalty_total)
+                            )
+                            break
+                    if next_beams:
                         break
 
         next_beams.sort(key=lambda item: item[0], reverse=True)
         beams = next_beams[:beam_width]
 
     if not beams:
-        return [
-            hls_candidate(base_hue + i * hue_step, 35, 100)
-            for i in range(count)
-        ]
+        return generate_contrast_palette(
+            rgb_from_hls_degrees(base_hue + 90),
+            count,
+            background,
+            min_contrast_ratio,
+            hue_step,
+            beam_width,
+        )
 
     return max(
         beams,
