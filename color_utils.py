@@ -40,6 +40,128 @@ MIN_THEME_RGB_DISTANCE = 100.0
 MIN_PRESET_COLOR_DISTANCE = 35.0
 
 
+SCORING_PARAMETERS = {
+    "min_rgb_weight": {
+        "default": 8.0,
+        "min": 0.0,
+        "max": 30.0,
+        "step": 0.5,
+        "description": "Награда за минимальную RGB-дистанцию: выше — ближайшая пара цветов будет различаться сильнее.",
+    },
+    "avg_rgb_weight": {
+        "default": 0.4,
+        "min": 0.0,
+        "max": 10.0,
+        "step": 0.1,
+        "description": "Награда за среднюю RGB-дистанцию: выше — вся палитра будет более разнесённой в RGB.",
+    },
+    "min_hue_weight": {
+        "default": 12.0,
+        "min": 0.0,
+        "max": 40.0,
+        "step": 0.5,
+        "description": "Награда за минимальную hue-дистанцию: выше — ближайшие оттенки будут дальше друг от друга.",
+    },
+    "avg_hue_weight": {
+        "default": 0.8,
+        "min": 0.0,
+        "max": 10.0,
+        "step": 0.1,
+        "description": "Награда за среднюю hue-дистанцию: выше — оттенки в палитре будут равномернее распределяться по кругу.",
+    },
+    "avg_brightness_weight": {
+        "default": 2.0,
+        "min": 0.0,
+        "max": 10.0,
+        "step": 0.1,
+        "description": "Награда за среднюю яркость: выше — алгоритм предпочитает более яркие цвета.",
+    },
+    "avg_vividness_weight": {
+        "default": 1.4,
+        "min": 0.0,
+        "max": 10.0,
+        "step": 0.1,
+        "description": "Награда за насыщенность: выше — алгоритм избегает сероватых цветов.",
+    },
+    "min_contrast_weight": {
+        "default": 35.0,
+        "min": 0.0,
+        "max": 120.0,
+        "step": 1.0,
+        "description": "Награда за минимальный контраст с фоном: выше — слабейший по контрасту цвет будет темнее/контрастнее.",
+    },
+    "contrast_spread_penalty": {
+        "default": 160.0,
+        "min": 0.0,
+        "max": 500.0,
+        "step": 5.0,
+        "description": "Штраф за разброс контраста: выше — контрастность всех четырёх цветов будет ближе друг к другу.",
+    },
+    "brightness_spread_penalty": {
+        "default": 12.0,
+        "min": 0.0,
+        "max": 100.0,
+        "step": 1.0,
+        "description": "Штраф за разброс яркости: выше — яркость цветов будет более одинаковой.",
+    },
+    "muted_penalty": {
+        "default": 1400.0,
+        "min": 0.0,
+        "max": 5000.0,
+        "step": 50.0,
+        "description": "Штраф за недостаточную насыщенность: выше — мутные/серые цвета сильнее проигрывают.",
+    },
+    "rgb_separation_penalty": {
+        "default": 18.0,
+        "min": 0.0,
+        "max": 120.0,
+        "step": 1.0,
+        "description": "Штраф за RGB-дистанцию ниже порога: выше — близкие по RGB цвета сильнее отбрасываются.",
+    },
+    "hue_separation_penalty": {
+        "default": 24.0,
+        "min": 0.0,
+        "max": 120.0,
+        "step": 1.0,
+        "description": "Штраф за hue-дистанцию ниже целевой: выше — похожие оттенки сильнее отбрасываются.",
+    },
+    "brightness_balance_penalty": {
+        "default": 50.0,
+        "min": 0.0,
+        "max": 200.0,
+        "step": 5.0,
+        "description": "Дополнительный штраф за превышение допустимого разброса яркости: выше — палитра будет ровнее по яркости.",
+    },
+    "target_min_hue": {
+        "default": 90.0,
+        "min": 0.0,
+        "max": 180.0,
+        "step": 5.0,
+        "description": "Целевая минимальная дистанция по hue в градусах: выше — оттенки должны быть дальше друг от друга.",
+    },
+    "free_brightness_spread": {
+        "default": 25.0,
+        "min": 0.0,
+        "max": 120.0,
+        "step": 5.0,
+        "description": "Разброс яркости без дополнительного штрафа: ниже — алгоритм строже выравнивает яркость.",
+    },
+}
+
+
+def default_scoring_parameters():
+    """Return mutable score coefficients used by palette generation and presets."""
+    return {key: meta["default"] for key, meta in SCORING_PARAMETERS.items()}
+
+
+def resolve_scoring_parameters(scoring_parameters=None):
+    """Merge user-edited score coefficients with defaults."""
+    parameters = default_scoring_parameters()
+    if scoring_parameters:
+        parameters.update(scoring_parameters)
+    return parameters
+
+
 def figma_luminosity(rgb):
     """Return the non-linear RGB luminosity used by W3C/Figma blend modes."""
     r, g, b = [x / 255.0 for x in rgb]
@@ -165,8 +287,11 @@ def pairwise_palette_distances(palette):
     return rgb_distances, hue_distances
 
 
-def palette_quality_metrics(palette, background=LIGHT_THEME_BACKGROUND):
+def palette_quality_metrics(
+    palette, background=LIGHT_THEME_BACKGROUND, scoring_parameters=None
+):
     """Return shared palette metrics used by score and UI descriptions."""
+    parameters = resolve_scoring_parameters(scoring_parameters)
     hues = [hue_degrees(color) for color in palette]
     rgb_distances, hue_distances = pairwise_palette_distances(palette)
     min_rgb = min(rgb_distances, default=0.0)
@@ -185,27 +310,29 @@ def palette_quality_metrics(palette, background=LIGHT_THEME_BACKGROUND):
     muted_penalty = sum(muted_color_penalty(color) for color in palette)
     if len(palette) >= 4:
         rgb_separation_penalty = max(0.0, MIN_THEME_RGB_DISTANCE - min_rgb)
-        hue_separation_penalty = max(0.0, 90.0 - min_hue)
-        brightness_balance_penalty = max(0.0, brightness_spread - 25.0)
+        hue_separation_penalty = max(0.0, parameters["target_min_hue"] - min_hue)
+        brightness_balance_penalty = max(
+            0.0, brightness_spread - parameters["free_brightness_spread"]
+        )
     else:
         rgb_separation_penalty = 0.0
         hue_separation_penalty = 0.0
         brightness_balance_penalty = 0.0
     score = (
         QUALITY_SCORE_BASELINE
-        + min_rgb * 8.0
-        + avg_rgb * 0.4
-        + min_hue * 12.0
-        + avg_hue * 0.8
-        + avg_brightness * 2.0
-        + avg_vividness * 1.4
-        + min_contrast * 35.0
-        - contrast_spread * 160.0
-        - brightness_spread * 12.0
-        - muted_penalty * 1400.0
-        - rgb_separation_penalty * 18.0
-        - hue_separation_penalty * 24.0
-        - brightness_balance_penalty * 50.0
+        + min_rgb * parameters["min_rgb_weight"]
+        + avg_rgb * parameters["avg_rgb_weight"]
+        + min_hue * parameters["min_hue_weight"]
+        + avg_hue * parameters["avg_hue_weight"]
+        + avg_brightness * parameters["avg_brightness_weight"]
+        + avg_vividness * parameters["avg_vividness_weight"]
+        + min_contrast * parameters["min_contrast_weight"]
+        - contrast_spread * parameters["contrast_spread_penalty"]
+        - brightness_spread * parameters["brightness_spread_penalty"]
+        - muted_penalty * parameters["muted_penalty"]
+        - rgb_separation_penalty * parameters["rgb_separation_penalty"]
+        - hue_separation_penalty * parameters["hue_separation_penalty"]
+        - brightness_balance_penalty * parameters["brightness_balance_penalty"]
     )
     return {
         "score": score,
@@ -221,9 +348,13 @@ def palette_quality_metrics(palette, background=LIGHT_THEME_BACKGROUND):
     }
 
 
-def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
+def palette_quality_score(
+    palette, background=LIGHT_THEME_BACKGROUND, scoring_parameters=None
+):
     """Score a palette using the shared picker/preset quality formula."""
-    return palette_quality_metrics(palette, background)["score"]
+    return palette_quality_metrics(
+        palette, background, scoring_parameters
+    )["score"]
 
 
 def adjust_hls_to_luminance(hue_degrees_value, saturation, target):
@@ -267,6 +398,7 @@ def generate_contrast_palette(
     min_contrast_ratio=WCAG_AA_NORMAL_TEXT_RATIO,
     hue_step=None,
     beam_width=24,
+    scoring_parameters=None,
 ):
     """Generate vivid, separated colors with sufficient, balanced contrast.
 
@@ -293,12 +425,15 @@ def generate_contrast_palette(
                 min_contrast_ratio,
                 float(step),
                 beam_width,
+                scoring_parameters,
             )
             for step in range(60, 151, 15)
         ]
         return max(
             candidate_palettes,
-            key=lambda palette: palette_quality_score(palette, background),
+            key=lambda palette: palette_quality_score(
+                palette, background, scoring_parameters
+            ),
         )
 
     def hls_candidate(hue, lightness, saturation):
@@ -352,7 +487,9 @@ def generate_contrast_palette(
                 next_palette = palette + [candidate]
                 next_hue_penalty = hue_penalty_total + hue_penalty
                 next_score = (
-                    palette_quality_score(next_palette, background)
+                    palette_quality_score(
+                        next_palette, background, scoring_parameters
+                    )
                     - next_hue_penalty
                 )
                 next_beams.append((next_score, next_palette, next_hue_penalty))
@@ -370,7 +507,9 @@ def generate_contrast_palette(
                         ):
                             next_palette = palette + [candidate]
                             next_score = (
-                                palette_quality_score(next_palette, background)
+                                palette_quality_score(
+                                    next_palette, background, scoring_parameters
+                                )
                                 - hue_penalty_total
                             )
                             next_beams.append(
@@ -391,11 +530,15 @@ def generate_contrast_palette(
             min_contrast_ratio,
             hue_step,
             beam_width,
+            scoring_parameters,
         )
 
     return max(
         beams,
-        key=lambda item: palette_quality_score(item[1], background) - item[2],
+        key=lambda item: palette_quality_score(
+            item[1], background, scoring_parameters
+        )
+        - item[2],
     )[1]
 
 
@@ -409,7 +552,9 @@ def palette_distance(a, b):
     return sum(min(rgb_distance(color, other) for other in b) for color in a) / len(a)
 
 
-def preset_diversity_penalty(palette, selected_palettes, selected_colors=None):
+def preset_diversity_penalty(
+    palette, selected_palettes, selected_colors=None, scoring_parameters=None
+):
     """Penalize palettes that are too close to previously selected presets."""
     if not selected_palettes:
         return 0.0
@@ -560,7 +705,7 @@ def fill_unique_preset_palette(selected_colors, candidates):
     return palette
 
 
-def generate_preset_palettes(limit=24):
+def generate_preset_palettes(limit=24, scoring_parameters=None):
     """Compute ready-to-use bright palettes with quality and diversity scores."""
     seed_hues = range(0, 360, 10)
     hue_steps = tuple(float(step) for step in range(60, 151, 10))
@@ -570,14 +715,18 @@ def generate_preset_palettes(limit=24):
     for hue in seed_hues:
         for hue_step in hue_steps:
             palette = generate_contrast_palette(
-                rgb_from_hls_degrees(hue), hue_step=hue_step
+                rgb_from_hls_degrees(hue),
+                hue_step=hue_step,
+                scoring_parameters=scoring_parameters,
             )
             palette_key = tuple(rgb_to_hex(color) for color in palette)
             if palette_key in seen_keys:
                 continue
 
             seen_keys.add(palette_key)
-            score = palette_quality_score(palette)
+            score = palette_quality_score(
+                palette, scoring_parameters=scoring_parameters
+            )
             scored_palettes.append((score, palette))
 
     selected_palettes = []
@@ -594,7 +743,7 @@ def generate_preset_palettes(limit=24):
 
         for index, (score, palette) in enumerate(remaining_palettes):
             adjusted_score = score - preset_diversity_penalty(
-                palette, selected_palettes, selected_colors
+                palette, selected_palettes, selected_colors, scoring_parameters
             )
             if adjusted_score > best_adjusted_score:
                 best_index = index
