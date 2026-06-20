@@ -36,6 +36,8 @@ BROWN_MIN_ORANGE_BRIGHTNESS = 210
 MUTED_MIN_VIVIDNESS = 90
 MIN_THEME_BRIGHTNESS = 150
 QUALITY_SCORE_BASELINE = 6000.0
+MIN_THEME_RGB_DISTANCE = 100.0
+MIN_PRESET_COLOR_DISTANCE = 25.0
 
 
 def figma_luminosity(rgb):
@@ -161,7 +163,7 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
     brown_penalty = sum(brown_hue_penalty(color) for color in palette)
     muted_penalty = sum(muted_color_penalty(color) for color in palette)
     if len(palette) >= 4:
-        rgb_separation_penalty = max(0.0, 150.0 - min_rgb)
+        rgb_separation_penalty = max(0.0, MIN_THEME_RGB_DISTANCE - min_rgb)
         hue_separation_penalty = max(0.0, 90.0 - min_hue)
         brightness_balance_penalty = max(0.0, brightness_spread - 45.0)
     else:
@@ -287,6 +289,11 @@ def generate_contrast_palette(
             for hue_penalty, candidate in candidates:
                 if candidate in palette:
                     continue
+                if any(
+                    rgb_distance(candidate, selected) < MIN_THEME_RGB_DISTANCE
+                    for selected in palette
+                ):
+                    continue
 
                 next_palette = palette + [candidate]
                 next_hue_penalty = hue_penalty_total + hue_penalty
@@ -303,7 +310,10 @@ def generate_contrast_palette(
                         ideal_hue + fallback_offset
                     )
                     for _hue_penalty, candidate in fallback_candidates:
-                        if candidate not in palette:
+                        if candidate not in palette and all(
+                            rgb_distance(candidate, selected) >= MIN_THEME_RGB_DISTANCE
+                            for selected in palette
+                        ):
                             next_palette = palette + [candidate]
                             next_score = (
                                 palette_quality_score(next_palette, background)
@@ -364,50 +374,132 @@ def preset_diversity_penalty(palette, selected_palettes, selected_colors=None):
     return max(0.0, 130.0 - closest_color_distance) * 45.0
 
 
-def unique_preset_color(color, used_colors):
-    """Return a vivid nearby color that has not appeared in earlier presets."""
-    if color not in used_colors and not disallowed_theme_color(color):
+def unique_preset_color(color, selected_colors, palette_colors):
+    """Return a vivid preset color that does not repeat earlier presets.
+
+    The function keeps the 100 RGB-distance inside the current preset. Across
+    presets it first looks for a color at least MIN_PRESET_COLOR_DISTANCE away
+    from every previously selected color; if the finite candidate grid cannot
+    satisfy that softer similarity buffer, it still returns the farthest exact
+    non-duplicate candidate so preset colors do not repeat.
+    """
+
+    def reusable(candidate):
+        if candidate in selected_colors or candidate in palette_colors:
+            return False
+        if disallowed_theme_color(candidate):
+            return False
+        if contrast_ratio(candidate, LIGHT_THEME_BACKGROUND) < WCAG_AA_NORMAL_TEXT_RATIO:
+            return False
+        return all(
+            rgb_distance(candidate, palette_color) >= MIN_THEME_RGB_DISTANCE
+            for palette_color in palette_colors
+        )
+
+    def distance_to_selected(candidate):
+        if not selected_colors:
+            return float("inf")
+        return min(
+            rgb_distance(candidate, selected_color)
+            for selected_color in selected_colors
+        )
+
+    if reusable(color) and distance_to_selected(color) >= MIN_PRESET_COLOR_DISTANCE:
         return color
 
     base_hue = hue_degrees(color)
-    fallback = None
+    best_candidate = color if reusable(color) else None
+    best_distance = distance_to_selected(color) if best_candidate is not None else -1.0
 
-    for hue_offset in range(5, 181, 10):
-        for direction in (-1, 1):
-            hue = base_hue + hue_offset * direction
-            for saturation in (1.0, 0.94, 0.88):
-                for lightness in (0.32, 0.38, 0.44):
+    for hue_offset in range(0, 361, 5):
+        offsets = (0,) if hue_offset == 0 else (-hue_offset, hue_offset)
+        for offset in offsets:
+            hue = base_hue + offset
+            for saturation in (1.0, 0.94, 0.88, 0.82, 0.76):
+                for lightness in (0.24, 0.28, 0.32, 0.36, 0.40, 0.44, 0.48):
                     candidate = rgb_from_hls_degrees(hue, lightness, saturation)
-                    if candidate in used_colors:
-                        continue
-                    if disallowed_theme_color(candidate):
+                    if not reusable(candidate):
                         continue
 
-                    candidate_contrast = contrast_ratio(
-                        candidate, LIGHT_THEME_BACKGROUND
-                    )
-                    if candidate_contrast < WCAG_AA_NORMAL_TEXT_RATIO:
-                        continue
-
-                    min_used_distance = (
-                        min(
-                            rgb_distance(candidate, used_color)
-                            for used_color in used_colors
-                        )
-                        if used_colors
-                        else float("inf")
-                    )
-                    if fallback is None:
-                        fallback = candidate
-                    if min_used_distance >= 25.0:
+                    selected_distance = distance_to_selected(candidate)
+                    if selected_distance >= MIN_PRESET_COLOR_DISTANCE:
                         return candidate
+                    if selected_distance > best_distance:
+                        best_candidate = candidate
+                        best_distance = selected_distance
 
-    if fallback is not None:
-        return fallback
-    return rgb_from_hls_degrees(base_hue + 120)
+    return best_candidate
 
 
-def generate_preset_palettes(limit=50):
+def preset_candidate_pool():
+    """Return reusable vivid colors for filling globally unique presets."""
+    candidates = []
+    seen = set()
+
+    def add_candidate(candidate):
+        if candidate in seen:
+            return
+        if disallowed_theme_color(candidate):
+            return
+        if contrast_ratio(candidate, LIGHT_THEME_BACKGROUND) < WCAG_AA_NORMAL_TEXT_RATIO:
+            return
+        seen.add(candidate)
+        candidates.append(candidate)
+
+    for hue in range(0, 360, 5):
+        for saturation in (1.0, 0.94, 0.88, 0.82, 0.76):
+            for lightness in (0.24, 0.28, 0.32, 0.36, 0.40, 0.44, 0.48):
+                add_candidate(rgb_from_hls_degrees(hue, lightness, saturation))
+
+    for red in range(0, 256, 16):
+        for green in range(0, 256, 16):
+            for blue in range(0, 256, 16):
+                add_candidate((red, green, blue))
+
+    return candidates
+
+
+def fill_unique_preset_palette(selected_colors, candidates):
+    """Build one extra preset from colors unused by earlier presets."""
+    palette = []
+
+    while len(palette) < 4:
+        best_candidate = None
+        best_score = -1.0
+        for candidate in candidates:
+            if candidate in selected_colors or candidate in palette:
+                continue
+            if any(
+                rgb_distance(candidate, palette_color) < MIN_THEME_RGB_DISTANCE
+                for palette_color in palette
+            ):
+                continue
+
+            if selected_colors:
+                selected_distance = min(
+                    rgb_distance(candidate, selected_color)
+                    for selected_color in selected_colors
+                )
+            else:
+                selected_distance = MIN_PRESET_COLOR_DISTANCE
+            if selected_distance < MIN_PRESET_COLOR_DISTANCE:
+                continue
+
+            score = min(selected_distance, MIN_PRESET_COLOR_DISTANCE)
+            score += palette_quality_score(palette + [candidate]) * 0.0001
+            if score > best_score:
+                best_candidate = candidate
+                best_score = score
+
+        if best_candidate is None:
+            return None
+
+        palette.append(best_candidate)
+
+    return palette
+
+
+def generate_preset_palettes(limit=12):
     """Compute ready-to-use bright palettes with quality and diversity scores."""
     seed_hues = range(0, 360, 15)
     hue_steps = tuple(float(step) for step in range(60, 151, 15))
@@ -453,15 +545,42 @@ def generate_preset_palettes(limit=50):
 
         _base_score, palette = remaining_palettes.pop(best_index)
         unique_palette = []
-        used_colors = set(selected_colors)
         for color in palette:
-            unique_color = unique_preset_color(color, used_colors)
+            unique_color = unique_preset_color(color, set(selected_colors), unique_palette)
+            if unique_color is None:
+                unique_palette = []
+                break
+
             unique_palette.append(unique_color)
-            used_colors.add(unique_color)
+
+        if not unique_palette:
+            continue
+        if min(pairwise_palette_distances(unique_palette)[0]) < MIN_THEME_RGB_DISTANCE:
+            continue
 
         selected_palettes.append(
             (palette_quality_score(unique_palette), unique_palette)
         )
 
     selected_palettes.sort(key=lambda x: x[0], reverse=True)
-    return selected_palettes
+    distinct_palettes = []
+    distinct_colors = []
+    for score, palette in selected_palettes:
+        if all(
+            rgb_distance(color, selected_color) >= MIN_PRESET_COLOR_DISTANCE
+            for color in palette
+            for selected_color in distinct_colors
+        ):
+            distinct_palettes.append((score, palette))
+            distinct_colors.extend(palette)
+
+    fill_candidates = preset_candidate_pool()
+    while len(distinct_palettes) < limit:
+        palette = fill_unique_preset_palette(set(distinct_colors), fill_candidates)
+        if palette is None:
+            break
+        distinct_palettes.append((palette_quality_score(palette), palette))
+        distinct_colors.extend(palette)
+
+    distinct_palettes.sort(key=lambda x: x[0], reverse=True)
+    return distinct_palettes

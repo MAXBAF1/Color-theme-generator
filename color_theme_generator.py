@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 
 from color_utils import (
     LIGHT_THEME_BACKGROUND,
+    MIN_THEME_RGB_DISTANCE,
     WCAG_AA_NORMAL_TEXT_RATIO,
     contrast_ratio,
     generate_contrast_palette,
@@ -69,7 +70,8 @@ class PresetRow(QWidget):
         layout.addWidget(
             selectable_label(
                 f"{title} · score {score:.1f} · "
-                f"Минимальная дистанция между цветами: {min_distance:.1f}"
+                f"Минимальная дистанция между цветами: {min_distance:.1f} "
+                f"(порог {MIN_THEME_RGB_DISTANCE:.0f})"
             )
         )
 
@@ -229,7 +231,8 @@ class Window(QWidget):
             f"(цель WCAG AA: {WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). "
             f"Диапазон ч/б справочно: #{min_gray:02X}{min_gray:02X}{min_gray:02X}–"
             f"#{max_gray:02X}{max_gray:02X}{max_gray:02X}. "
-            f"Минимальная RGB-дистанция между темами: {min(distances):.1f}."
+            f"Минимальная RGB-дистанция между темами: {min(distances):.1f} "
+            f"(порог {MIN_THEME_RGB_DISTANCE:.0f})."
         )
 
         for i, rgb in enumerate(self.colors):
