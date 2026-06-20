@@ -168,7 +168,16 @@ class Window(QWidget):
             "Применить коэффициенты и пересчитать"
         )
         self.apply_scoring_button.clicked.connect(self.apply_scoring_parameters)
-        coefficients_layout.addWidget(self.apply_scoring_button)
+
+        self.reset_scoring_button = QPushButton(
+            "Сбросить коэффициенты и пересчитать"
+        )
+        self.reset_scoring_button.clicked.connect(self.reset_scoring_parameters)
+
+        coefficients_buttons_layout = QHBoxLayout()
+        coefficients_buttons_layout.addWidget(self.apply_scoring_button)
+        coefficients_buttons_layout.addWidget(self.reset_scoring_button)
+        coefficients_layout.addLayout(coefficients_buttons_layout)
         layout.addWidget(coefficients_group)
 
         self.info_label = selectable_label()
@@ -235,6 +244,15 @@ class Window(QWidget):
     def apply_scoring_parameters(self):
         self.generate_from_first_color()
         self.rebuild_presets()
+
+    def reset_scoring_parameters(self):
+        self.scoring_parameters = default_scoring_parameters()
+        for key, spinbox in self.scoring_inputs.items():
+            spinbox.blockSignals(True)
+            spinbox.setValue(self.scoring_parameters[key])
+            spinbox.blockSignals(False)
+
+        self.apply_scoring_parameters()
 
     def rebuild_presets(self):
         while self.preset_rows:
