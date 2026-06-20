@@ -37,7 +37,7 @@ MUTED_MIN_VIVIDNESS = 90
 MIN_THEME_BRIGHTNESS = 150
 QUALITY_SCORE_BASELINE = 6000.0
 MIN_THEME_RGB_DISTANCE = 100.0
-MIN_PRESET_COLOR_DISTANCE = 25.0
+MIN_PRESET_COLOR_DISTANCE = 35.0
 
 
 def figma_luminosity(rgb):
@@ -119,13 +119,8 @@ def muted_color_penalty(rgb):
 
 
 def disallowed_theme_color(rgb):
-    """Return True for brown or grayish colors that should not be selected."""
-    return (
-        max(rgb) < MIN_THEME_BRIGHTNESS
-        or red_hue_penalty(hue_degrees(rgb)) > 0
-        or brown_hue_penalty(rgb) > 0
-        or muted_color_penalty(rgb) > 0
-    )
+    """Return True for colors that are too dark or too gray for themes."""
+    return max(rgb) < MIN_THEME_BRIGHTNESS or muted_color_penalty(rgb) > 0
 
 
 def pairwise_palette_distances(palette):
@@ -159,13 +154,11 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
     contrasts = [contrast_ratio(color, background) for color in palette]
     min_contrast = min(contrasts)
     contrast_spread = max(contrasts) - min_contrast
-    red_penalty = sum(red_hue_penalty(hue) for hue in hues)
-    brown_penalty = sum(brown_hue_penalty(color) for color in palette)
     muted_penalty = sum(muted_color_penalty(color) for color in palette)
     if len(palette) >= 4:
         rgb_separation_penalty = max(0.0, MIN_THEME_RGB_DISTANCE - min_rgb)
         hue_separation_penalty = max(0.0, 90.0 - min_hue)
-        brightness_balance_penalty = max(0.0, brightness_spread - 45.0)
+        brightness_balance_penalty = max(0.0, brightness_spread - 25.0)
     else:
         rgb_separation_penalty = 0.0
         hue_separation_penalty = 0.0
@@ -179,9 +172,8 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
         + avg_brightness * 2.0
         + avg_vividness * 1.4
         + min_contrast * 35.0
-        - contrast_spread * 60.0
-        - red_penalty * 35.0
-        - brown_penalty * 1400.0
+        - contrast_spread * 160.0
+        - brightness_spread * 12.0
         - muted_penalty * 1400.0
         - rgb_separation_penalty * 18.0
         - hue_separation_penalty * 24.0
@@ -284,10 +276,6 @@ def generate_contrast_palette(
                     if candidate_contrast < min_contrast_ratio:
                         continue
 
-                    candidate_hue = hue_degrees(candidate)
-                    red_penalty = red_hue_penalty(candidate_hue)
-                    if red_penalty > 0:
-                        continue
                     if disallowed_theme_color(candidate):
                         continue
 
@@ -377,7 +365,7 @@ def palette_distance(a, b):
 
 
 def preset_diversity_penalty(palette, selected_palettes, selected_colors=None):
-    """Penalize palettes that are too close to any previously selected presets."""
+    """Penalize palettes that are too close to previously selected presets."""
     if not selected_palettes:
         return 0.0
 
@@ -391,8 +379,15 @@ def preset_diversity_penalty(palette, selected_palettes, selected_colors=None):
         for color in palette
         for selected_color in selected_colors
     )
+    closest_palette_distance = min(
+        palette_distance(palette, selected_palette)
+        for _score, selected_palette in selected_palettes
+    )
 
-    return max(0.0, 130.0 - closest_color_distance) * 45.0
+    return (
+        max(0.0, 150.0 - closest_color_distance) * 80.0
+        + max(0.0, 180.0 - closest_palette_distance) * 60.0
+    )
 
 
 def unique_preset_color(color, selected_colors, palette_colors):
@@ -520,10 +515,10 @@ def fill_unique_preset_palette(selected_colors, candidates):
     return palette
 
 
-def generate_preset_palettes(limit=12):
+def generate_preset_palettes(limit=24):
     """Compute ready-to-use bright palettes with quality and diversity scores."""
-    seed_hues = range(0, 360, 15)
-    hue_steps = tuple(float(step) for step in range(60, 151, 15))
+    seed_hues = range(0, 360, 10)
+    hue_steps = tuple(float(step) for step in range(60, 151, 10))
     scored_palettes = []
     seen_keys = set()
 
@@ -540,7 +535,6 @@ def generate_preset_palettes(limit=12):
             score = palette_quality_score(palette)
             scored_palettes.append((score, palette))
 
-    scored_palettes.sort(key=lambda x: x[0], reverse=True)
     selected_palettes = []
     remaining_palettes = scored_palettes.copy()
 
@@ -564,44 +558,7 @@ def generate_preset_palettes(limit=12):
         if best_index is None:
             break
 
-        _base_score, palette = remaining_palettes.pop(best_index)
-        unique_palette = []
-        for color in palette:
-            unique_color = unique_preset_color(color, set(selected_colors), unique_palette)
-            if unique_color is None:
-                unique_palette = []
-                break
+        score, palette = remaining_palettes.pop(best_index)
+        selected_palettes.append((score, palette))
 
-            unique_palette.append(unique_color)
-
-        if not unique_palette:
-            continue
-        if min(pairwise_palette_distances(unique_palette)[0]) < MIN_THEME_RGB_DISTANCE:
-            continue
-
-        selected_palettes.append(
-            (palette_quality_score(unique_palette), unique_palette)
-        )
-
-    selected_palettes.sort(key=lambda x: x[0], reverse=True)
-    distinct_palettes = []
-    distinct_colors = []
-    for score, palette in selected_palettes:
-        if all(
-            rgb_distance(color, selected_color) >= MIN_PRESET_COLOR_DISTANCE
-            for color in palette
-            for selected_color in distinct_colors
-        ):
-            distinct_palettes.append((score, palette))
-            distinct_colors.extend(palette)
-
-    fill_candidates = preset_candidate_pool()
-    while len(distinct_palettes) < limit:
-        palette = fill_unique_preset_palette(set(distinct_colors), fill_candidates)
-        if palette is None:
-            break
-        distinct_palettes.append((palette_quality_score(palette), palette))
-        distinct_colors.extend(palette)
-
-    distinct_palettes.sort(key=lambda x: x[0], reverse=True)
-    return distinct_palettes
+    return selected_palettes
