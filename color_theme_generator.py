@@ -20,12 +20,11 @@ from color_utils import (
     LIGHT_THEME_BACKGROUND,
     MIN_THEME_RGB_DISTANCE,
     WCAG_AA_NORMAL_TEXT_RATIO,
-    contrast_ratio,
+    describe_color,
     generate_contrast_palette,
     generate_preset_palettes,
-    figma_luminosity,
     grayscale_value,
-    hue_degrees,
+    palette_quality_metrics,
     rgb_distance,
     rgb_to_hex,
 )
@@ -93,18 +92,7 @@ class PresetRow(QWidget):
             swatch.setStyleSheet(f"background:{rgb_to_hex(color)};")
             color_layout.addWidget(swatch)
 
-            lum = figma_luminosity(color)
-            gray = grayscale_value(color)
-            gray_hex = f"#{gray:02X}{gray:02X}{gray:02X}"
-            brightness = max(color)
-            description = selectable_label(
-                f"HEX: {rgb_to_hex(color)}\n"
-                f"Hue: {hue_degrees(color):.1f}°\n"
-                f"Brightness: {brightness}/255\n"
-                f"Figma gray: {gray_hex} ({lum:.12f})\n"
-                f"Contrast on #FCFCFC: "
-                f"{contrast_ratio(color, LIGHT_THEME_BACKGROUND):.2f}:1"
-            )
+            description = selectable_label(describe_color(color))
             color_layout.addWidget(description)
             colors_layout.addWidget(color_widget)
 
@@ -219,16 +207,18 @@ class Window(QWidget):
             for a, b in combinations(range(4), 2)
         ]
         bg_hex = rgb_to_hex(LIGHT_THEME_BACKGROUND)
-        min_bg_contrast = min(
-            contrast_ratio(color, LIGHT_THEME_BACKGROUND) for color in self.colors
-        )
+        palette_metrics = palette_quality_metrics(self.colors)
         self.info_label.setText(
             "Ч/б значение больше не участвует в подборе: "
             "главные критерии — достаточный и близкий контраст с фоном, "
             "яркость и различимость цветов. "
+            f"Score: {palette_metrics['score']:.1f}. "
             f"Фон светлой темы: {bg_hex}. "
-            f"Минимальный контраст с фоном: {min_bg_contrast:.2f}:1 "
+            f"Минимальный контраст с фоном: {palette_metrics['min_contrast']:.2f}:1 "
             f"(цель WCAG AA: {WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). "
+            f"Разброс контраста: {palette_metrics['contrast_spread']:.2f}. "
+            f"Средняя яркость: {palette_metrics['avg_brightness']:.1f}/255. "
+            f"Разброс яркости: {palette_metrics['brightness_spread']:.1f}. "
             f"Диапазон ч/б справочно: #{min_gray:02X}{min_gray:02X}{min_gray:02X}–"
             f"#{max_gray:02X}{max_gray:02X}{max_gray:02X}. "
             f"Минимальная RGB-дистанция между темами: {min(distances):.1f} "
@@ -236,18 +226,11 @@ class Window(QWidget):
         )
 
         for i, rgb in enumerate(self.colors):
-            lum = figma_luminosity(rgb)
             color_gray = grayscale_value(rgb)
             color_gray_hex = f"#{color_gray:02X}{color_gray:02X}{color_gray:02X}"
             self.rows[i].color_preview.setStyleSheet(f"background:{rgb_to_hex(rgb)};")
             self.rows[i].gray_preview.setStyleSheet(f"background:{color_gray_hex};")
-            self.rows[i].label.setText(
-                f"HEX: {rgb_to_hex(rgb)}\n"
-                f"Hue: {hue_degrees(rgb):.1f}°\n"
-                f"Figma gray: {color_gray_hex} ({lum:.12f})\n"
-                f"Contrast on #FCFCFC: "
-                f"{contrast_ratio(rgb, LIGHT_THEME_BACKGROUND):.2f}:1"
-            )
+            self.rows[i].label.setText(describe_color(rgb))
 
 
 if __name__ == "__main__":

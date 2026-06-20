@@ -79,6 +79,34 @@ def rgb_to_hex(rgb):
     return "#{:02X}{:02X}{:02X}".format(*rgb)
 
 
+def color_metrics(rgb, background=LIGHT_THEME_BACKGROUND):
+    """Return shared UI/scoring metrics for a single theme color."""
+    gray = grayscale_value(rgb)
+    return {
+        "hex": rgb_to_hex(rgb),
+        "hue": hue_degrees(rgb),
+        "brightness": max(rgb),
+        "figma_luminosity": figma_luminosity(rgb),
+        "gray": gray,
+        "gray_hex": f"#{gray:02X}{gray:02X}{gray:02X}",
+        "contrast": contrast_ratio(rgb, background),
+        "vividness": max(rgb) - min(rgb),
+    }
+
+
+def describe_color(rgb, background=LIGHT_THEME_BACKGROUND):
+    """Return the shared color description used by generated rows and presets."""
+    metrics = color_metrics(rgb, background)
+    return (
+        f"HEX: {metrics['hex']}\n"
+        f"Hue: {metrics['hue']:.1f}°\n"
+        f"Brightness: {metrics['brightness']}/255\n"
+        f"Figma gray: {metrics['gray_hex']} "
+        f"({metrics['figma_luminosity']:.12f})\n"
+        f"Contrast on {rgb_to_hex(background)}: {metrics['contrast']:.2f}:1"
+    )
+
+
 def hue_degrees(rgb):
     r, g, b = [x / 255.0 for x in rgb]
     h, _l, _s = colorsys.rgb_to_hls(r, g, b)
@@ -137,8 +165,8 @@ def pairwise_palette_distances(palette):
     return rgb_distances, hue_distances
 
 
-def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
-    """Score a palette using the shared picker/preset quality formula."""
+def palette_quality_metrics(palette, background=LIGHT_THEME_BACKGROUND):
+    """Return shared palette metrics used by score and UI descriptions."""
     hues = [hue_degrees(color) for color in palette]
     rgb_distances, hue_distances = pairwise_palette_distances(palette)
     min_rgb = min(rgb_distances, default=0.0)
@@ -163,7 +191,7 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
         rgb_separation_penalty = 0.0
         hue_separation_penalty = 0.0
         brightness_balance_penalty = 0.0
-    return (
+    score = (
         QUALITY_SCORE_BASELINE
         + min_rgb * 8.0
         + avg_rgb * 0.4
@@ -179,6 +207,23 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
         - hue_separation_penalty * 24.0
         - brightness_balance_penalty * 50.0
     )
+    return {
+        "score": score,
+        "min_rgb": min_rgb,
+        "avg_rgb": avg_rgb,
+        "min_hue": min_hue,
+        "avg_hue": avg_hue,
+        "avg_brightness": avg_brightness,
+        "brightness_spread": brightness_spread,
+        "avg_vividness": avg_vividness,
+        "min_contrast": min_contrast,
+        "contrast_spread": contrast_spread,
+    }
+
+
+def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
+    """Score a palette using the shared picker/preset quality formula."""
+    return palette_quality_metrics(palette, background)["score"]
 
 
 def adjust_hls_to_luminance(hue_degrees_value, saturation, target):
