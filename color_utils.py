@@ -229,7 +229,7 @@ def generate_contrast_palette(
     background=LIGHT_THEME_BACKGROUND,
     min_contrast_ratio=WCAG_AA_NORMAL_TEXT_RATIO,
     hue_step=None,
-    beam_width=12,
+    beam_width=24,
 ):
     """Generate vivid, separated colors with sufficient, balanced contrast.
 
@@ -239,9 +239,30 @@ def generate_contrast_palette(
     other, and keep their contrast ratios roughly close across the palette.
     It uses beam search instead of a purely greedy pick so later colors can
     recover combinations that have a better final shared palette score.
+
+    When no hue step is supplied, several candidate hue spacings are evaluated
+    and the highest-scoring full palette is returned.  This avoids locking user
+    generation to a 90-degree tetrad when the app's own scoring formula prefers
+    a different spacing for the chosen starting hue.
     """
     base_hue = hue_degrees(base_rgb)
-    hue_step = hue_step or (360.0 / count)
+
+    if hue_step is None:
+        candidate_palettes = [
+            generate_contrast_palette(
+                base_rgb,
+                count,
+                background,
+                min_contrast_ratio,
+                float(step),
+                beam_width,
+            )
+            for step in range(60, 151, 15)
+        ]
+        return max(
+            candidate_palettes,
+            key=lambda palette: palette_quality_score(palette, background),
+        )
 
     def hls_candidate(hue, lightness, saturation):
         rr, gg, bb = colorsys.hls_to_rgb(
