@@ -31,6 +31,7 @@ LIGHT_THEME_BACKGROUND = (252, 252, 252)
 WCAG_AA_NORMAL_TEXT_RATIO = 4.5
 RED_HUE_CENTER = 0.0
 RED_HUE_AVOID_DEGREES = 35.0
+RED_MIN_BRIGHTNESS = 210
 BROWN_HUE_RANGE = (15.0, 65.0)
 BROWN_MIN_ORANGE_BRIGHTNESS = 210
 MUTED_MIN_VIVIDNESS = 90
@@ -40,113 +41,276 @@ MIN_THEME_RGB_DISTANCE = 100.0
 MIN_PRESET_COLOR_DISTANCE = 35.0
 
 
+GENERATION_PARAMETERS = {
+    "LIGHT_THEME_BACKGROUND_R": {
+        "default": LIGHT_THEME_BACKGROUND[0], "min": 0, "max": 255, "step": 1, "decimals": 0,
+        "description": "Красный канал фона светлой темы. Вместе с двумя следующими полями задаёт цвет фона, на котором должны хорошо читаться все 4 цвета.",
+    },
+    "LIGHT_THEME_BACKGROUND_G": {
+        "default": LIGHT_THEME_BACKGROUND[1], "min": 0, "max": 255, "step": 1, "decimals": 0,
+        "description": "Зелёный канал фона светлой темы. Если фон в вашем интерфейсе не почти белый, поменяйте R, G и B под реальный фон.",
+    },
+    "LIGHT_THEME_BACKGROUND_B": {
+        "default": LIGHT_THEME_BACKGROUND[2], "min": 0, "max": 255, "step": 1, "decimals": 0,
+        "description": "Синий канал фона светлой темы. 0 — нет синего, 255 — максимум синего; для белого фона все три канала близки к 255.",
+    },
+    "WCAG_AA_NORMAL_TEXT_RATIO": {
+        "default": WCAG_AA_NORMAL_TEXT_RATIO, "min": 1.0, "max": 21.0, "step": 0.1, "decimals": 2,
+        "description": "Минимальная читаемость цвета на фоне. 4.5 — стандарт WCAG AA для обычного текста; больше = цвета будут темнее и контрастнее.",
+    },
+    "RED_HUE_CENTER": {
+        "default": RED_HUE_CENTER, "min": 0.0, "max": 360.0, "step": 1.0, "decimals": 1,
+        "description": "Где на цветовом круге находится «чистый красный», которого генератор старается избегать. Обычно это 0 градусов.",
+    },
+    "RED_HUE_AVOID_DEGREES": {
+        "default": RED_HUE_AVOID_DEGREES, "min": 0.0, "max": 180.0, "step": 1.0, "decimals": 1,
+        "description": "Насколько широко вокруг красного цвета включается зона проверки. Больше = больше красных и розово-красных оттенков попадут под штраф.",
+    },
+    "RED_MIN_BRIGHTNESS": {
+        "default": RED_MIN_BRIGHTNESS, "min": 0, "max": 255, "step": 1, "decimals": 0,
+        "description": "С какой яркости красный считается ярко-красным. Если красный цвет ярче этого значения, он получает штраф, чтобы не путаться с ошибками и предупреждениями.",
+    },
+    "BROWN_HUE_MIN": {
+        "default": BROWN_HUE_RANGE[0], "min": 0.0, "max": 360.0, "step": 1.0, "decimals": 1,
+        "description": "Начало зоны оранжево-коричневых оттенков, которые могут выглядеть грязно. Используется вместе со следующим полем.",
+    },
+    "BROWN_HUE_MAX": {
+        "default": BROWN_HUE_RANGE[1], "min": 0.0, "max": 360.0, "step": 1.0, "decimals": 1,
+        "description": "Конец зоны оранжево-коричневых оттенков. Цвета внутри этой зоны проходят строже, чтобы не получить тусклый коричневый.",
+    },
+    "BROWN_MIN_ORANGE_BRIGHTNESS": {
+        "default": BROWN_MIN_ORANGE_BRIGHTNESS, "min": 0, "max": 255, "step": 1, "decimals": 0,
+        "description": "Минимальная яркость для оранжевых цветов. Если оранжевый темнее этого значения, он считается коричневатым и получает штраф.",
+    },
+    "MUTED_MIN_VIVIDNESS": {
+        "default": MUTED_MIN_VIVIDNESS, "min": 0, "max": 255, "step": 1, "decimals": 0,
+        "description": "Минимальная «живость» цвета: разница между самым большим и самым маленьким RGB-каналом. Больше = меньше серых и блеклых цветов.",
+    },
+    "MIN_THEME_BRIGHTNESS": {
+        "default": MIN_THEME_BRIGHTNESS, "min": 0, "max": 255, "step": 1, "decimals": 0,
+        "description": "Минимальная яркость каждого цвета темы. Больше = генератор не будет брать слишком тёмные цвета.",
+    },
+    "QUALITY_SCORE_BASELINE": {
+        "default": QUALITY_SCORE_BASELINE, "min": 0.0, "max": 20000.0, "step": 100.0, "decimals": 1,
+        "description": "Стартовое число для score. На выбор цветов почти не влияет, но делает итоговый балл удобнее читать: выше = score начинается с большего значения.",
+    },
+    "MIN_THEME_RGB_DISTANCE": {
+        "default": MIN_THEME_RGB_DISTANCE, "min": 0.0, "max": 441.7, "step": 1.0, "decimals": 1,
+        "description": "Минимальная разница между двумя цветами внутри одной палитры. Больше = 4 цвета будут заметнее отличаться друг от друга.",
+    },
+    "MIN_PRESET_COLOR_DISTANCE": {
+        "default": MIN_PRESET_COLOR_DISTANCE, "min": 0.0, "max": 441.7, "step": 1.0, "decimals": 1,
+        "description": "Минимальная разница между цветами в разных готовых пресетах. Больше = пресеты меньше повторяют похожие цвета.",
+    },
+}
+
+
+GENERATION_PARAMETER_GROUPS = (
+    (
+        "Фон и читаемость",
+        "Здесь задаётся фон интерфейса и минимальный контраст: эти настройки отвечают за то, чтобы цвета были видны на светлой теме.",
+        (
+            "LIGHT_THEME_BACKGROUND_R",
+            "LIGHT_THEME_BACKGROUND_G",
+            "LIGHT_THEME_BACKGROUND_B",
+            "WCAG_AA_NORMAL_TEXT_RATIO",
+        ),
+    ),
+    (
+        "Красный цвет",
+        "Настройки ярко-красных оттенков. Они помогают не получать цвета, похожие на цвет ошибки или опасного действия.",
+        ("RED_HUE_CENTER", "RED_HUE_AVOID_DEGREES", "RED_MIN_BRIGHTNESS"),
+    ),
+    (
+        "Оранжево-коричневые оттенки",
+        "Настройки коричневых и грязно-оранжевых цветов. Они помогают оставить чистый оранжевый, но отсеивать тусклый коричневый.",
+        ("BROWN_HUE_MIN", "BROWN_HUE_MAX", "BROWN_MIN_ORANGE_BRIGHTNESS"),
+    ),
+    (
+        "Яркость, насыщенность и расстояния",
+        "Общие ограничения для качества палитры: насколько цвет должен быть ярким, живым и отличаться от других цветов.",
+        (
+            "MUTED_MIN_VIVIDNESS",
+            "MIN_THEME_BRIGHTNESS",
+            "QUALITY_SCORE_BASELINE",
+            "MIN_THEME_RGB_DISTANCE",
+            "MIN_PRESET_COLOR_DISTANCE",
+        ),
+    ),
+)
+
+
+def default_generation_parameters():
+    return {key: meta["default"] for key, meta in GENERATION_PARAMETERS.items()}
+
+
+def apply_generation_parameters(parameters):
+    global LIGHT_THEME_BACKGROUND, WCAG_AA_NORMAL_TEXT_RATIO, RED_HUE_CENTER
+    global RED_HUE_AVOID_DEGREES, RED_MIN_BRIGHTNESS, BROWN_HUE_RANGE, BROWN_MIN_ORANGE_BRIGHTNESS
+    global MUTED_MIN_VIVIDNESS, MIN_THEME_BRIGHTNESS, QUALITY_SCORE_BASELINE
+    global MIN_THEME_RGB_DISTANCE, MIN_PRESET_COLOR_DISTANCE
+    merged = default_generation_parameters()
+    merged.update(parameters or {})
+    LIGHT_THEME_BACKGROUND = (
+        clamp(merged["LIGHT_THEME_BACKGROUND_R"]),
+        clamp(merged["LIGHT_THEME_BACKGROUND_G"]),
+        clamp(merged["LIGHT_THEME_BACKGROUND_B"]),
+    )
+    WCAG_AA_NORMAL_TEXT_RATIO = float(merged["WCAG_AA_NORMAL_TEXT_RATIO"])
+    RED_HUE_CENTER = float(merged["RED_HUE_CENTER"])
+    RED_HUE_AVOID_DEGREES = float(merged["RED_HUE_AVOID_DEGREES"])
+    RED_MIN_BRIGHTNESS = clamp(merged["RED_MIN_BRIGHTNESS"])
+    BROWN_HUE_RANGE = (float(merged["BROWN_HUE_MIN"]), float(merged["BROWN_HUE_MAX"]))
+    BROWN_MIN_ORANGE_BRIGHTNESS = clamp(merged["BROWN_MIN_ORANGE_BRIGHTNESS"])
+    MUTED_MIN_VIVIDNESS = clamp(merged["MUTED_MIN_VIVIDNESS"])
+    MIN_THEME_BRIGHTNESS = clamp(merged["MIN_THEME_BRIGHTNESS"])
+    QUALITY_SCORE_BASELINE = float(merged["QUALITY_SCORE_BASELINE"])
+    MIN_THEME_RGB_DISTANCE = float(merged["MIN_THEME_RGB_DISTANCE"])
+    MIN_PRESET_COLOR_DISTANCE = float(merged["MIN_PRESET_COLOR_DISTANCE"])
+    return merged
+
+
 SCORING_PARAMETERS = {
     "min_rgb_weight": {
         "default": 8.0,
         "min": 0.0,
         "max": 30.0,
         "step": 0.5,
-        "description": "Награда за минимальную RGB-дистанцию: выше — ближайшая пара цветов будет различаться сильнее.",
+        "description": "Насколько важно, чтобы даже самая похожая пара цветов отличалась по RGB. Больше = генератор сильнее разводит похожие цвета.",
     },
     "avg_rgb_weight": {
         "default": 0.4,
         "min": 0.0,
         "max": 10.0,
         "step": 0.1,
-        "description": "Награда за среднюю RGB-дистанцию: выше — вся палитра будет более разнесённой в RGB.",
+        "description": "Насколько важно, чтобы вся четвёрка цветов в среднем была разной по RGB. Больше = палитра выглядит разнообразнее.",
     },
     "min_hue_weight": {
         "default": 12.0,
         "min": 0.0,
         "max": 40.0,
         "step": 0.5,
-        "description": "Награда за минимальную hue-дистанцию: выше — ближайшие оттенки будут дальше друг от друга.",
+        "description": "Насколько важно разделять похожие оттенки на цветовом круге. Больше = меньше двух почти одинаковых оттенков.",
     },
     "avg_hue_weight": {
         "default": 0.8,
         "min": 0.0,
         "max": 10.0,
         "step": 0.1,
-        "description": "Награда за среднюю hue-дистанцию: выше — оттенки в палитре будут равномернее распределяться по кругу.",
+        "description": "Насколько важно разложить оттенки по разным частям цветового круга. Больше = цвета меньше собираются в одну цветовую область.",
     },
     "avg_brightness_weight": {
         "default": 2.0,
         "min": 0.0,
         "max": 10.0,
         "step": 0.1,
-        "description": "Награда за среднюю яркость: выше — алгоритм предпочитает более яркие цвета.",
+        "description": "Насколько генератор любит яркие цвета. Больше = чаще выбираются светлые и заметные варианты.",
     },
     "avg_vividness_weight": {
         "default": 1.4,
         "min": 0.0,
         "max": 10.0,
         "step": 0.1,
-        "description": "Награда за насыщенность: выше — алгоритм избегает сероватых цветов.",
+        "description": "Насколько генератор любит насыщенные, “цветные” цвета. Больше = меньше серых и пыльных вариантов.",
     },
     "min_contrast_weight": {
         "default": 35.0,
         "min": 0.0,
         "max": 120.0,
         "step": 1.0,
-        "description": "Награда за минимальный контраст с фоном: выше — слабейший по контрасту цвет будет темнее/контрастнее.",
+        "description": "Насколько важно, чтобы самый плохо читаемый цвет всё равно хорошо выделялся на фоне. Больше = цвета становятся контрастнее.",
     },
     "contrast_spread_penalty": {
         "default": 160.0,
         "min": 0.0,
         "max": 500.0,
         "step": 5.0,
-        "description": "Штраф за разброс контраста: выше — контрастность всех четырёх цветов будет ближе друг к другу.",
+        "description": "Насколько плохо, если один цвет намного контрастнее другого. Больше = все 4 цвета будут ближе по читаемости.",
     },
     "brightness_spread_penalty": {
         "default": 12.0,
         "min": 0.0,
         "max": 100.0,
         "step": 1.0,
-        "description": "Штраф за разброс яркости: выше — яркость цветов будет более одинаковой.",
+        "description": "Насколько плохо, если один цвет очень светлый, а другой намного темнее. Больше = яркость всей палитры ровнее.",
     },
     "muted_penalty": {
         "default": 1400.0,
         "min": 0.0,
         "max": 5000.0,
         "step": 50.0,
-        "description": "Штраф за недостаточную насыщенность: выше — мутные/серые цвета сильнее проигрывают.",
+        "description": "Насколько сильно наказывать блеклые и сероватые цвета. Больше = генератор почти не выбирает “грязные” цвета.",
     },
     "rgb_separation_penalty": {
         "default": 18.0,
         "min": 0.0,
         "max": 120.0,
         "step": 1.0,
-        "description": "Штраф за RGB-дистанцию ниже порога: выше — близкие по RGB цвета сильнее отбрасываются.",
+        "description": "Насколько сильно наказывать цвета, которые слишком похожи по RGB. Больше = похожие цвета быстрее отбрасываются.",
     },
     "hue_separation_penalty": {
         "default": 24.0,
         "min": 0.0,
         "max": 120.0,
         "step": 1.0,
-        "description": "Штраф за hue-дистанцию ниже целевой: выше — похожие оттенки сильнее отбрасываются.",
+        "description": "Насколько сильно наказывать оттенки, которые стоят слишком близко на цветовом круге. Больше = меньше похожих оттенков.",
     },
     "brightness_balance_penalty": {
         "default": 50.0,
         "min": 0.0,
         "max": 200.0,
         "step": 5.0,
-        "description": "Дополнительный штраф за превышение допустимого разброса яркости: выше — палитра будет ровнее по яркости.",
+        "description": "Насколько сильно наказывать палитру, если разброс яркости превысил разрешённый запас. Больше = яркость выравнивается строже.",
     },
     "target_min_hue": {
         "default": 90.0,
         "min": 0.0,
         "max": 180.0,
         "step": 5.0,
-        "description": "Целевая минимальная дистанция по hue в градусах: выше — оттенки должны быть дальше друг от друга.",
+        "description": "Желаемое минимальное расстояние между оттенками на цветовом круге. Больше = цвета должны быть из более разных цветовых зон.",
     },
     "free_brightness_spread": {
         "default": 25.0,
         "min": 0.0,
         "max": 120.0,
         "step": 5.0,
-        "description": "Разброс яркости без дополнительного штрафа: ниже — алгоритм строже выравнивает яркость.",
+        "description": "Сколько разницы в яркости разрешено бесплатно. Меньше = генератор раньше начинает штрафовать неровную яркость.",
     },
 }
+
+
+SCORING_PARAMETER_GROUPS = (
+    (
+        "Различимость цветов",
+        "Насколько сильно генератор старается сделать 4 цвета непохожими друг на друга.",
+        (
+            "min_rgb_weight",
+            "avg_rgb_weight",
+            "min_hue_weight",
+            "avg_hue_weight",
+            "rgb_separation_penalty",
+            "hue_separation_penalty",
+            "target_min_hue",
+        ),
+    ),
+    (
+        "Яркость и насыщенность",
+        "Насколько генератор любит яркие, живые цвета и насколько строго выравнивает яркость палитры.",
+        (
+            "avg_brightness_weight",
+            "avg_vividness_weight",
+            "brightness_spread_penalty",
+            "brightness_balance_penalty",
+            "free_brightness_spread",
+            "muted_penalty",
+        ),
+    ),
+    (
+        "Контраст с фоном",
+        "Насколько важно, чтобы все цвета одинаково хорошо читались на выбранном фоне.",
+        ("min_contrast_weight", "contrast_spread_penalty"),
+    ),
+)
 
 
 def default_scoring_parameters():
@@ -201,8 +365,9 @@ def rgb_to_hex(rgb):
     return "#{:02X}{:02X}{:02X}".format(*rgb)
 
 
-def color_metrics(rgb, background=LIGHT_THEME_BACKGROUND):
+def color_metrics(rgb, background=None):
     """Return shared UI/scoring metrics for a single theme color."""
+    background = LIGHT_THEME_BACKGROUND if background is None else background
     gray = grayscale_value(rgb)
     return {
         "hex": rgb_to_hex(rgb),
@@ -216,8 +381,9 @@ def color_metrics(rgb, background=LIGHT_THEME_BACKGROUND):
     }
 
 
-def describe_color(rgb, background=LIGHT_THEME_BACKGROUND):
+def describe_color(rgb, background=None):
     """Return the shared color description used by generated rows and presets."""
+    background = LIGHT_THEME_BACKGROUND if background is None else background
     metrics = color_metrics(rgb, background)
     return (
         f"HEX: {metrics['hex']}\n"
@@ -244,10 +410,16 @@ def rgb_distance(a, b):
     return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
 
-def red_hue_penalty(hue):
-    """Return a penalty for explicit red hues used for errors in UI."""
+def red_hue_penalty(rgb):
+    """Return a penalty for bright red hues commonly used for errors in UI."""
+    hue = hue_degrees(rgb)
     distance = circular_hue_distance(hue % 360.0, RED_HUE_CENTER)
-    return max(0.0, RED_HUE_AVOID_DEGREES - distance)
+    red_zone = max(0.0, RED_HUE_AVOID_DEGREES - distance)
+    if red_zone == 0.0:
+        return 0.0
+
+    extra_brightness = max(0, max(rgb) - RED_MIN_BRIGHTNESS)
+    return red_zone * (extra_brightness / max(1, 255 - RED_MIN_BRIGHTNESS))
 
 
 def brown_hue_penalty(rgb):
@@ -288,9 +460,10 @@ def pairwise_palette_distances(palette):
 
 
 def palette_quality_metrics(
-    palette, background=LIGHT_THEME_BACKGROUND, scoring_parameters=None
+    palette, background=None, scoring_parameters=None
 ):
     """Return shared palette metrics used by score and UI descriptions."""
+    background = LIGHT_THEME_BACKGROUND if background is None else background
     parameters = resolve_scoring_parameters(scoring_parameters)
     hues = [hue_degrees(color) for color in palette]
     rgb_distances, hue_distances = pairwise_palette_distances(palette)
@@ -308,6 +481,8 @@ def palette_quality_metrics(
     min_contrast = min(contrasts)
     contrast_spread = max(contrasts) - min_contrast
     muted_penalty = sum(muted_color_penalty(color) for color in palette)
+    red_penalty = sum(red_hue_penalty(color) for color in palette)
+    brown_penalty = sum(brown_hue_penalty(color) for color in palette)
     if len(palette) >= 4:
         rgb_separation_penalty = max(0.0, MIN_THEME_RGB_DISTANCE - min_rgb)
         hue_separation_penalty = max(0.0, parameters["target_min_hue"] - min_hue)
@@ -330,6 +505,8 @@ def palette_quality_metrics(
         - contrast_spread * parameters["contrast_spread_penalty"]
         - brightness_spread * parameters["brightness_spread_penalty"]
         - muted_penalty * parameters["muted_penalty"]
+        - red_penalty * 80.0
+        - brown_penalty * 1200.0
         - rgb_separation_penalty * parameters["rgb_separation_penalty"]
         - hue_separation_penalty * parameters["hue_separation_penalty"]
         - brightness_balance_penalty * parameters["brightness_balance_penalty"]
@@ -349,7 +526,7 @@ def palette_quality_metrics(
 
 
 def palette_quality_score(
-    palette, background=LIGHT_THEME_BACKGROUND, scoring_parameters=None
+    palette, background=None, scoring_parameters=None
 ):
     """Score a palette using the shared picker/preset quality formula."""
     return palette_quality_metrics(
@@ -394,8 +571,8 @@ def adjust_to_luminance(rgb, target):
 def generate_contrast_palette(
     base_rgb,
     count=4,
-    background=LIGHT_THEME_BACKGROUND,
-    min_contrast_ratio=WCAG_AA_NORMAL_TEXT_RATIO,
+    background=None,
+    min_contrast_ratio=None,
     hue_step=None,
     beam_width=24,
     scoring_parameters=None,
@@ -414,6 +591,8 @@ def generate_contrast_palette(
     generation to a 90-degree tetrad when the app's own scoring formula prefers
     a different spacing for the chosen starting hue.
     """
+    background = LIGHT_THEME_BACKGROUND if background is None else background
+    min_contrast_ratio = WCAG_AA_NORMAL_TEXT_RATIO if min_contrast_ratio is None else min_contrast_ratio
     base_hue = hue_degrees(base_rgb)
 
     if hue_step is None:
