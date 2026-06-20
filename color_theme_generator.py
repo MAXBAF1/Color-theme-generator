@@ -443,7 +443,7 @@ class Window(QWidget):
         self.pending_recalculate_index = None
 
         if index == 0:
-            self.generate_from_first_color()
+            self.preview_from_first_color()
         elif index is not None:
             self.recalculate_manual_palette()
 
@@ -505,6 +505,21 @@ class Window(QWidget):
 
     def generate_from_first_color(self):
         self.start_palette_task("Подбираю палитру и готовые пресеты…")
+
+    def preview_from_first_color(self):
+        if self.worker_thread is not None and self.worker_thread.isRunning():
+            self.task_id += 1
+            self.pending_generation = False
+            self.set_busy(False, "Показываю быстрый предпросмотр, фоновый расчёт завершается…")
+
+        self.colors = generate_contrast_palette(
+            self.original_colors[0], 4, scoring_parameters=self.scoring_parameters
+        )
+        self.original_colors = self.colors.copy()
+        self.update_ui()
+        self.status_label.setText(
+            "Быстрый предпросмотр готов. Пресеты обновятся при генерации или применении настроек."
+        )
 
     def start_palette_task(self, message):
         if self.worker_thread is not None and self.worker_thread.isRunning():
