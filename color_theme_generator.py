@@ -94,9 +94,11 @@ class PresetRow(QWidget):
             lum = figma_luminosity(color)
             gray = grayscale_value(color)
             gray_hex = f"#{gray:02X}{gray:02X}{gray:02X}"
+            brightness = max(color)
             description = selectable_label(
                 f"HEX: {rgb_to_hex(color)}\n"
                 f"Hue: {hue_degrees(color):.1f}°\n"
+                f"Brightness: {brightness}/255\n"
                 f"Figma gray: {gray_hex} ({lum:.12f})\n"
                 f"Contrast on #FCFCFC: "
                 f"{contrast_ratio(color, LIGHT_THEME_BACKGROUND):.2f}:1"
