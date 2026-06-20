@@ -36,6 +36,7 @@ BROWN_MIN_ORANGE_BRIGHTNESS = 210
 MUTED_MIN_VIVIDNESS = 90
 MIN_THEME_BRIGHTNESS = 150
 QUALITY_SCORE_BASELINE = 6000.0
+MIN_THEME_RGB_DISTANCE = 100.0
 
 
 def figma_luminosity(rgb):
@@ -161,7 +162,7 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
     brown_penalty = sum(brown_hue_penalty(color) for color in palette)
     muted_penalty = sum(muted_color_penalty(color) for color in palette)
     if len(palette) >= 4:
-        rgb_separation_penalty = max(0.0, 150.0 - min_rgb)
+        rgb_separation_penalty = max(0.0, MIN_THEME_RGB_DISTANCE - min_rgb)
         hue_separation_penalty = max(0.0, 90.0 - min_hue)
         brightness_balance_penalty = max(0.0, brightness_spread - 45.0)
     else:
@@ -287,6 +288,11 @@ def generate_contrast_palette(
             for hue_penalty, candidate in candidates:
                 if candidate in palette:
                     continue
+                if any(
+                    rgb_distance(candidate, selected) < MIN_THEME_RGB_DISTANCE
+                    for selected in palette
+                ):
+                    continue
 
                 next_palette = palette + [candidate]
                 next_hue_penalty = hue_penalty_total + hue_penalty
@@ -303,7 +309,10 @@ def generate_contrast_palette(
                         ideal_hue + fallback_offset
                     )
                     for _hue_penalty, candidate in fallback_candidates:
-                        if candidate not in palette:
+                        if candidate not in palette and all(
+                            rgb_distance(candidate, selected) >= MIN_THEME_RGB_DISTANCE
+                            for selected in palette
+                        ):
                             next_palette = palette + [candidate]
                             next_score = (
                                 palette_quality_score(next_palette, background)
@@ -399,7 +408,7 @@ def unique_preset_color(color, used_colors):
                     )
                     if fallback is None:
                         fallback = candidate
-                    if min_used_distance >= 25.0:
+                    if min_used_distance >= MIN_THEME_RGB_DISTANCE:
                         return candidate
 
     if fallback is not None:
@@ -458,6 +467,12 @@ def generate_preset_palettes(limit=50):
             unique_color = unique_preset_color(color, used_colors)
             unique_palette.append(unique_color)
             used_colors.add(unique_color)
+
+        if min(pairwise_palette_distances(unique_palette)[0]) < MIN_THEME_RGB_DISTANCE:
+            unique_palette = palette
+
+        if min(pairwise_palette_distances(unique_palette)[0]) < MIN_THEME_RGB_DISTANCE:
+            continue
 
         selected_palettes.append(
             (palette_quality_score(unique_palette), unique_palette)
