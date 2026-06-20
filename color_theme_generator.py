@@ -19,11 +19,12 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 
+import color_utils as cu
 from color_utils import (
-    LIGHT_THEME_BACKGROUND,
-    MIN_THEME_RGB_DISTANCE,
-    WCAG_AA_NORMAL_TEXT_RATIO,
+    GENERATION_PARAMETERS,
     SCORING_PARAMETERS,
+    apply_generation_parameters,
+    default_generation_parameters,
     default_scoring_parameters,
     describe_color,
     generate_contrast_palette,
@@ -75,7 +76,7 @@ class PresetRow(QWidget):
             selectable_label(
                 f"{title} · score {score:.1f} · "
                 f"Минимальная дистанция между цветами: {min_distance:.1f} "
-                f"(порог {MIN_THEME_RGB_DISTANCE:.0f})"
+                f"(порог {cu.MIN_THEME_RGB_DISTANCE:.0f})"
             )
         )
 
@@ -118,7 +119,9 @@ class Window(QWidget):
         ]
         self.colors = self.original_colors.copy()
         self.scoring_parameters = default_scoring_parameters()
+        self.generation_parameters = default_generation_parameters()
         self.scoring_inputs = {}
+        self.generation_inputs = {}
 
         main_layout = QVBoxLayout(self)
         scroll_area = QScrollArea()
@@ -134,14 +137,59 @@ class Window(QWidget):
         self.generate_button.clicked.connect(self.generate_from_first_color)
         layout.addWidget(self.generate_button)
 
+        generation_group = QGroupBox("Основные правила генерации")
+        generation_layout = QVBoxLayout(generation_group)
+        generation_help = selectable_label(
+            "Эти параметры задают базовые ограничения: какой фон считать фоном "
+            "интерфейса, какой контраст нужен, какие цвета считать слишком "
+            "похожими, тёмными или блеклыми. Измените значения и нажмите "
+            "«Применить правила и пересчитать»."
+        )
+        generation_layout.addWidget(generation_help)
+
+        generation_form = QFormLayout()
+        generation_layout.addLayout(generation_form)
+        for key, metadata in GENERATION_PARAMETERS.items():
+            spinbox = QDoubleSpinBox()
+            spinbox.setRange(metadata["min"], metadata["max"])
+            spinbox.setSingleStep(metadata["step"])
+            spinbox.setDecimals(metadata["decimals"])
+            spinbox.setValue(self.generation_parameters[key])
+            spinbox.valueChanged.connect(
+                lambda value, parameter_key=key: self.on_generation_parameter_changed(
+                    parameter_key, value
+                )
+            )
+            self.generation_inputs[key] = spinbox
+            generation_form.addRow(
+                selectable_label(f"{key}\n{metadata['description']}"),
+                spinbox,
+            )
+
+        self.apply_generation_button = QPushButton(
+            "Применить правила и пересчитать"
+        )
+        self.apply_generation_button.clicked.connect(self.apply_generation_parameters)
+
+        self.reset_generation_button = QPushButton(
+            "Сбросить правила и пересчитать"
+        )
+        self.reset_generation_button.clicked.connect(self.reset_generation_parameters)
+
+        generation_buttons_layout = QHBoxLayout()
+        generation_buttons_layout.addWidget(self.apply_generation_button)
+        generation_buttons_layout.addWidget(self.reset_generation_button)
+        generation_layout.addLayout(generation_buttons_layout)
+        layout.addWidget(generation_group)
+
         coefficients_group = QGroupBox(
             "Коэффициенты score для подбора цветов"
         )
         coefficients_layout = QVBoxLayout(coefficients_group)
         coefficients_help = selectable_label(
-            "Измените коэффициенты и нажмите «Применить коэффициенты». "
-            "Больший вес награды усиливает предпочтение, больший штраф "
-            "сильнее отбрасывает палитры с этим недостатком."
+            "Эти коэффициенты объясняют генератору, что для вас важнее. "
+            "Награда увеличивает score за хорошее свойство, штраф уменьшает "
+            "score за проблему. Если не уверены — оставьте значения по умолчанию."
         )
         coefficients_layout.addWidget(coefficients_help)
 
@@ -238,6 +286,25 @@ class Window(QWidget):
         elif index is not None:
             self.recalculate_manual_palette()
 
+    def on_generation_parameter_changed(self, key, value):
+        self.generation_parameters[key] = value
+
+    def apply_generation_parameters(self):
+        self.generation_parameters = apply_generation_parameters(
+            self.generation_parameters
+        )
+        self.generate_from_first_color()
+        self.rebuild_presets()
+
+    def reset_generation_parameters(self):
+        self.generation_parameters = default_generation_parameters()
+        for key, spinbox in self.generation_inputs.items():
+            spinbox.blockSignals(True)
+            spinbox.setValue(self.generation_parameters[key])
+            spinbox.blockSignals(False)
+
+        self.apply_generation_parameters()
+
     def on_scoring_parameter_changed(self, key, value):
         self.scoring_parameters[key] = value
 
@@ -288,7 +355,7 @@ class Window(QWidget):
             rgb_distance(self.colors[a], self.colors[b])
             for a, b in combinations(range(4), 2)
         ]
-        bg_hex = rgb_to_hex(LIGHT_THEME_BACKGROUND)
+        bg_hex = rgb_to_hex(cu.LIGHT_THEME_BACKGROUND)
         palette_metrics = palette_quality_metrics(
             self.colors, scoring_parameters=self.scoring_parameters
         )
@@ -299,14 +366,14 @@ class Window(QWidget):
             f"Score: {palette_metrics['score']:.1f}. "
             f"Фон светлой темы: {bg_hex}. "
             f"Минимальный контраст с фоном: {palette_metrics['min_contrast']:.2f}:1 "
-            f"(цель WCAG AA: {WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). \n"
+            f"(цель WCAG AA: {cu.WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). \n"
             f"Разброс контраста: {palette_metrics['contrast_spread']:.2f}. "
             f"Средняя яркость: {palette_metrics['avg_brightness']:.1f}/255. "
             f"Разброс яркости: {palette_metrics['brightness_spread']:.1f}. "
             f"Диапазон ч/б справочно: #{min_gray:02X}{min_gray:02X}{min_gray:02X}–"
             f"#{max_gray:02X}{max_gray:02X}{max_gray:02X}. "
             f"Минимальная RGB-дистанция между темами: {min(distances):.1f} "
-            f"(порог {MIN_THEME_RGB_DISTANCE:.0f})."
+            f"(порог {cu.MIN_THEME_RGB_DISTANCE:.0f})."
         )
 
         for i, rgb in enumerate(self.colors):
