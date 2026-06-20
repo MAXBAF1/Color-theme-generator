@@ -299,7 +299,7 @@ class Window(QWidget):
             f"Score: {palette_metrics['score']:.1f}. "
             f"Фон светлой темы: {bg_hex}. "
             f"Минимальный контраст с фоном: {palette_metrics['min_contrast']:.2f}:1 "
-            f"(цель WCAG AA: {WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). "
+            f"(цель WCAG AA: {WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). \n"
             f"Разброс контраста: {palette_metrics['contrast_spread']:.2f}. "
             f"Средняя яркость: {palette_metrics['avg_brightness']:.1f}/255. "
             f"Разброс яркости: {palette_metrics['brightness_spread']:.1f}. "
