@@ -9,7 +9,10 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QLabel,
     QColorDialog,
+    QDoubleSpinBox,
+    QFormLayout,
     QHBoxLayout,
+    QGroupBox,
     QVBoxLayout,
     QFrame,
     QScrollArea,
@@ -20,12 +23,13 @@ from color_utils import (
     LIGHT_THEME_BACKGROUND,
     MIN_THEME_RGB_DISTANCE,
     WCAG_AA_NORMAL_TEXT_RATIO,
-    contrast_ratio,
+    SCORING_PARAMETERS,
+    default_scoring_parameters,
+    describe_color,
     generate_contrast_palette,
     generate_preset_palettes,
-    figma_luminosity,
     grayscale_value,
-    hue_degrees,
+    palette_quality_metrics,
     rgb_distance,
     rgb_to_hex,
 )
@@ -93,18 +97,7 @@ class PresetRow(QWidget):
             swatch.setStyleSheet(f"background:{rgb_to_hex(color)};")
             color_layout.addWidget(swatch)
 
-            lum = figma_luminosity(color)
-            gray = grayscale_value(color)
-            gray_hex = f"#{gray:02X}{gray:02X}{gray:02X}"
-            brightness = max(color)
-            description = selectable_label(
-                f"HEX: {rgb_to_hex(color)}\n"
-                f"Hue: {hue_degrees(color):.1f}°\n"
-                f"Brightness: {brightness}/255\n"
-                f"Figma gray: {gray_hex} ({lum:.12f})\n"
-                f"Contrast on #FCFCFC: "
-                f"{contrast_ratio(color, LIGHT_THEME_BACKGROUND):.2f}:1"
-            )
+            description = selectable_label(describe_color(color))
             color_layout.addWidget(description)
             colors_layout.addWidget(color_widget)
 
@@ -124,6 +117,8 @@ class Window(QWidget):
             (255, 255, 0),
         ]
         self.colors = self.original_colors.copy()
+        self.scoring_parameters = default_scoring_parameters()
+        self.scoring_inputs = {}
 
         main_layout = QVBoxLayout(self)
         scroll_area = QScrollArea()
@@ -139,6 +134,52 @@ class Window(QWidget):
         self.generate_button.clicked.connect(self.generate_from_first_color)
         layout.addWidget(self.generate_button)
 
+        coefficients_group = QGroupBox(
+            "Коэффициенты score для подбора цветов"
+        )
+        coefficients_layout = QVBoxLayout(coefficients_group)
+        coefficients_help = selectable_label(
+            "Измените коэффициенты и нажмите «Применить коэффициенты». "
+            "Больший вес награды усиливает предпочтение, больший штраф "
+            "сильнее отбрасывает палитры с этим недостатком."
+        )
+        coefficients_layout.addWidget(coefficients_help)
+
+        coefficients_form = QFormLayout()
+        coefficients_layout.addLayout(coefficients_form)
+        for key, metadata in SCORING_PARAMETERS.items():
+            spinbox = QDoubleSpinBox()
+            spinbox.setRange(metadata["min"], metadata["max"])
+            spinbox.setSingleStep(metadata["step"])
+            spinbox.setDecimals(2)
+            spinbox.setValue(self.scoring_parameters[key])
+            spinbox.valueChanged.connect(
+                lambda value, parameter_key=key: self.on_scoring_parameter_changed(
+                    parameter_key, value
+                )
+            )
+            self.scoring_inputs[key] = spinbox
+            coefficients_form.addRow(
+                selectable_label(f"{key}\n{metadata['description']}"),
+                spinbox,
+            )
+
+        self.apply_scoring_button = QPushButton(
+            "Применить коэффициенты и пересчитать"
+        )
+        self.apply_scoring_button.clicked.connect(self.apply_scoring_parameters)
+
+        self.reset_scoring_button = QPushButton(
+            "Сбросить коэффициенты и пересчитать"
+        )
+        self.reset_scoring_button.clicked.connect(self.reset_scoring_parameters)
+
+        coefficients_buttons_layout = QHBoxLayout()
+        coefficients_buttons_layout.addWidget(self.apply_scoring_button)
+        coefficients_buttons_layout.addWidget(self.reset_scoring_button)
+        coefficients_layout.addLayout(coefficients_buttons_layout)
+        layout.addWidget(coefficients_group)
+
         self.info_label = selectable_label()
         layout.addWidget(self.info_label)
 
@@ -150,13 +191,10 @@ class Window(QWidget):
             self.rows.append(row)
 
         layout.addWidget(selectable_label("Готовые пресеты / палитры:"))
+        self.presets_layout = QVBoxLayout()
+        layout.addLayout(self.presets_layout)
         self.preset_rows = []
-        for preset_index, (score, palette) in enumerate(
-            generate_preset_palettes(), start=1
-        ):
-            preset_row = PresetRow(f"Пресет {preset_index}", score, palette)
-            layout.addWidget(preset_row)
-            self.preset_rows.append(preset_row)
+        self.rebuild_presets()
 
         self.active_dialog = None
         self.active_index = None
@@ -200,8 +238,40 @@ class Window(QWidget):
         elif index is not None:
             self.recalculate_manual_palette()
 
+    def on_scoring_parameter_changed(self, key, value):
+        self.scoring_parameters[key] = value
+
+    def apply_scoring_parameters(self):
+        self.generate_from_first_color()
+        self.rebuild_presets()
+
+    def reset_scoring_parameters(self):
+        self.scoring_parameters = default_scoring_parameters()
+        for key, spinbox in self.scoring_inputs.items():
+            spinbox.blockSignals(True)
+            spinbox.setValue(self.scoring_parameters[key])
+            spinbox.blockSignals(False)
+
+        self.apply_scoring_parameters()
+
+    def rebuild_presets(self):
+        while self.preset_rows:
+            preset_row = self.preset_rows.pop()
+            self.presets_layout.removeWidget(preset_row)
+            preset_row.deleteLater()
+
+        for preset_index, (score, palette) in enumerate(
+            generate_preset_palettes(scoring_parameters=self.scoring_parameters),
+            start=1,
+        ):
+            preset_row = PresetRow(f"Пресет {preset_index}", score, palette)
+            self.presets_layout.addWidget(preset_row)
+            self.preset_rows.append(preset_row)
+
     def generate_from_first_color(self):
-        self.colors = generate_contrast_palette(self.original_colors[0], 4)
+        self.colors = generate_contrast_palette(
+            self.original_colors[0], 4, scoring_parameters=self.scoring_parameters
+        )
         self.original_colors = self.colors.copy()
         self.update_ui()
 
@@ -219,16 +289,20 @@ class Window(QWidget):
             for a, b in combinations(range(4), 2)
         ]
         bg_hex = rgb_to_hex(LIGHT_THEME_BACKGROUND)
-        min_bg_contrast = min(
-            contrast_ratio(color, LIGHT_THEME_BACKGROUND) for color in self.colors
+        palette_metrics = palette_quality_metrics(
+            self.colors, scoring_parameters=self.scoring_parameters
         )
         self.info_label.setText(
             "Ч/б значение больше не участвует в подборе: "
             "главные критерии — достаточный и близкий контраст с фоном, "
             "яркость и различимость цветов. "
+            f"Score: {palette_metrics['score']:.1f}. "
             f"Фон светлой темы: {bg_hex}. "
-            f"Минимальный контраст с фоном: {min_bg_contrast:.2f}:1 "
-            f"(цель WCAG AA: {WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). "
+            f"Минимальный контраст с фоном: {palette_metrics['min_contrast']:.2f}:1 "
+            f"(цель WCAG AA: {WCAG_AA_NORMAL_TEXT_RATIO:.1f}:1). \n"
+            f"Разброс контраста: {palette_metrics['contrast_spread']:.2f}. "
+            f"Средняя яркость: {palette_metrics['avg_brightness']:.1f}/255. "
+            f"Разброс яркости: {palette_metrics['brightness_spread']:.1f}. "
             f"Диапазон ч/б справочно: #{min_gray:02X}{min_gray:02X}{min_gray:02X}–"
             f"#{max_gray:02X}{max_gray:02X}{max_gray:02X}. "
             f"Минимальная RGB-дистанция между темами: {min(distances):.1f} "
@@ -236,18 +310,11 @@ class Window(QWidget):
         )
 
         for i, rgb in enumerate(self.colors):
-            lum = figma_luminosity(rgb)
             color_gray = grayscale_value(rgb)
             color_gray_hex = f"#{color_gray:02X}{color_gray:02X}{color_gray:02X}"
             self.rows[i].color_preview.setStyleSheet(f"background:{rgb_to_hex(rgb)};")
             self.rows[i].gray_preview.setStyleSheet(f"background:{color_gray_hex};")
-            self.rows[i].label.setText(
-                f"HEX: {rgb_to_hex(rgb)}\n"
-                f"Hue: {hue_degrees(rgb):.1f}°\n"
-                f"Figma gray: {color_gray_hex} ({lum:.12f})\n"
-                f"Contrast on #FCFCFC: "
-                f"{contrast_ratio(rgb, LIGHT_THEME_BACKGROUND):.2f}:1"
-            )
+            self.rows[i].label.setText(describe_color(rgb))
 
 
 if __name__ == "__main__":
