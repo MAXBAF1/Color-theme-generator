@@ -145,7 +145,9 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
     avg_rgb = sum(rgb_distances) / len(rgb_distances) if rgb_distances else 0.0
     min_hue = min(hue_distances, default=0.0)
     avg_hue = sum(hue_distances) / len(hue_distances) if hue_distances else 0.0
-    avg_brightness = sum(max(color) for color in palette) / len(palette)
+    brightnesses = [max(color) for color in palette]
+    avg_brightness = sum(brightnesses) / len(palette)
+    brightness_spread = max(brightnesses) - min(brightnesses)
     avg_vividness = (
         sum(max(color) - min(color) for color in palette) / len(palette)
     )
@@ -158,13 +160,15 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
     if len(palette) >= 4:
         rgb_separation_penalty = max(0.0, 150.0 - min_rgb)
         hue_separation_penalty = max(0.0, 90.0 - min_hue)
+        brightness_balance_penalty = max(0.0, brightness_spread - 45.0)
     else:
         rgb_separation_penalty = 0.0
         hue_separation_penalty = 0.0
+        brightness_balance_penalty = 0.0
     return (
-        min_rgb * 6.0
+        min_rgb * 8.0
         + avg_rgb * 0.4
-        + min_hue * 10.0
+        + min_hue * 12.0
         + avg_hue * 0.8
         + avg_brightness * 2.0
         + avg_vividness * 1.4
@@ -175,6 +179,7 @@ def palette_quality_score(palette, background=LIGHT_THEME_BACKGROUND):
         - muted_penalty * 1400.0
         - rgb_separation_penalty * 18.0
         - hue_separation_penalty * 24.0
+        - brightness_balance_penalty * 50.0
     )
 
 
@@ -370,9 +375,13 @@ def unique_preset_color(color, used_colors):
                     if candidate_contrast < WCAG_AA_NORMAL_TEXT_RATIO:
                         continue
 
-                    min_used_distance = min(
-                        rgb_distance(candidate, used_color)
-                        for used_color in used_colors
+                    min_used_distance = (
+                        min(
+                            rgb_distance(candidate, used_color)
+                            for used_color in used_colors
+                        )
+                        if used_colors
+                        else float("inf")
                     )
                     if fallback is None:
                         fallback = candidate
