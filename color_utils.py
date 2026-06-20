@@ -31,6 +31,7 @@ LIGHT_THEME_BACKGROUND = (252, 252, 252)
 WCAG_AA_NORMAL_TEXT_RATIO = 4.5
 RED_HUE_CENTER = 0.0
 RED_HUE_AVOID_DEGREES = 35.0
+RED_MIN_BRIGHTNESS = 210
 BROWN_HUE_RANGE = (15.0, 65.0)
 BROWN_MIN_ORANGE_BRIGHTNESS = 210
 MUTED_MIN_VIVIDNESS = 90
@@ -63,7 +64,11 @@ GENERATION_PARAMETERS = {
     },
     "RED_HUE_AVOID_DEGREES": {
         "default": RED_HUE_AVOID_DEGREES, "min": 0.0, "max": 180.0, "step": 1.0, "decimals": 1,
-        "description": "Насколько широко вокруг красного цвета включается запретная зона. Больше = меньше красных и розово-красных вариантов.",
+        "description": "Насколько широко вокруг красного цвета включается зона проверки. Больше = больше красных и розово-красных оттенков попадут под штраф.",
+    },
+    "RED_MIN_BRIGHTNESS": {
+        "default": RED_MIN_BRIGHTNESS, "min": 0, "max": 255, "step": 1, "decimals": 0,
+        "description": "С какой яркости красный считается ярко-красным. Если красный цвет ярче этого значения, он получает штраф, чтобы не путаться с ошибками и предупреждениями.",
     },
     "BROWN_HUE_MIN": {
         "default": BROWN_HUE_RANGE[0], "min": 0.0, "max": 360.0, "step": 1.0, "decimals": 1,
@@ -100,13 +105,48 @@ GENERATION_PARAMETERS = {
 }
 
 
+GENERATION_PARAMETER_GROUPS = (
+    (
+        "Фон и читаемость",
+        "Здесь задаётся фон интерфейса и минимальный контраст: эти настройки отвечают за то, чтобы цвета были видны на светлой теме.",
+        (
+            "LIGHT_THEME_BACKGROUND_R",
+            "LIGHT_THEME_BACKGROUND_G",
+            "LIGHT_THEME_BACKGROUND_B",
+            "WCAG_AA_NORMAL_TEXT_RATIO",
+        ),
+    ),
+    (
+        "Красный цвет",
+        "Настройки ярко-красных оттенков. Они помогают не получать цвета, похожие на цвет ошибки или опасного действия.",
+        ("RED_HUE_CENTER", "RED_HUE_AVOID_DEGREES", "RED_MIN_BRIGHTNESS"),
+    ),
+    (
+        "Оранжево-коричневые оттенки",
+        "Настройки коричневых и грязно-оранжевых цветов. Они помогают оставить чистый оранжевый, но отсеивать тусклый коричневый.",
+        ("BROWN_HUE_MIN", "BROWN_HUE_MAX", "BROWN_MIN_ORANGE_BRIGHTNESS"),
+    ),
+    (
+        "Яркость, насыщенность и расстояния",
+        "Общие ограничения для качества палитры: насколько цвет должен быть ярким, живым и отличаться от других цветов.",
+        (
+            "MUTED_MIN_VIVIDNESS",
+            "MIN_THEME_BRIGHTNESS",
+            "QUALITY_SCORE_BASELINE",
+            "MIN_THEME_RGB_DISTANCE",
+            "MIN_PRESET_COLOR_DISTANCE",
+        ),
+    ),
+)
+
+
 def default_generation_parameters():
     return {key: meta["default"] for key, meta in GENERATION_PARAMETERS.items()}
 
 
 def apply_generation_parameters(parameters):
     global LIGHT_THEME_BACKGROUND, WCAG_AA_NORMAL_TEXT_RATIO, RED_HUE_CENTER
-    global RED_HUE_AVOID_DEGREES, BROWN_HUE_RANGE, BROWN_MIN_ORANGE_BRIGHTNESS
+    global RED_HUE_AVOID_DEGREES, RED_MIN_BRIGHTNESS, BROWN_HUE_RANGE, BROWN_MIN_ORANGE_BRIGHTNESS
     global MUTED_MIN_VIVIDNESS, MIN_THEME_BRIGHTNESS, QUALITY_SCORE_BASELINE
     global MIN_THEME_RGB_DISTANCE, MIN_PRESET_COLOR_DISTANCE
     merged = default_generation_parameters()
@@ -119,6 +159,7 @@ def apply_generation_parameters(parameters):
     WCAG_AA_NORMAL_TEXT_RATIO = float(merged["WCAG_AA_NORMAL_TEXT_RATIO"])
     RED_HUE_CENTER = float(merged["RED_HUE_CENTER"])
     RED_HUE_AVOID_DEGREES = float(merged["RED_HUE_AVOID_DEGREES"])
+    RED_MIN_BRIGHTNESS = clamp(merged["RED_MIN_BRIGHTNESS"])
     BROWN_HUE_RANGE = (float(merged["BROWN_HUE_MIN"]), float(merged["BROWN_HUE_MAX"]))
     BROWN_MIN_ORANGE_BRIGHTNESS = clamp(merged["BROWN_MIN_ORANGE_BRIGHTNESS"])
     MUTED_MIN_VIVIDNESS = clamp(merged["MUTED_MIN_VIVIDNESS"])
@@ -238,6 +279,40 @@ SCORING_PARAMETERS = {
 }
 
 
+SCORING_PARAMETER_GROUPS = (
+    (
+        "Различимость цветов",
+        "Насколько сильно генератор старается сделать 4 цвета непохожими друг на друга.",
+        (
+            "min_rgb_weight",
+            "avg_rgb_weight",
+            "min_hue_weight",
+            "avg_hue_weight",
+            "rgb_separation_penalty",
+            "hue_separation_penalty",
+            "target_min_hue",
+        ),
+    ),
+    (
+        "Яркость и насыщенность",
+        "Насколько генератор любит яркие, живые цвета и насколько строго выравнивает яркость палитры.",
+        (
+            "avg_brightness_weight",
+            "avg_vividness_weight",
+            "brightness_spread_penalty",
+            "brightness_balance_penalty",
+            "free_brightness_spread",
+            "muted_penalty",
+        ),
+    ),
+    (
+        "Контраст с фоном",
+        "Насколько важно, чтобы все цвета одинаково хорошо читались на выбранном фоне.",
+        ("min_contrast_weight", "contrast_spread_penalty"),
+    ),
+)
+
+
 def default_scoring_parameters():
     """Return mutable score coefficients used by palette generation and presets."""
     return {key: meta["default"] for key, meta in SCORING_PARAMETERS.items()}
@@ -335,10 +410,16 @@ def rgb_distance(a, b):
     return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
 
-def red_hue_penalty(hue):
-    """Return a penalty for explicit red hues used for errors in UI."""
+def red_hue_penalty(rgb):
+    """Return a penalty for bright red hues commonly used for errors in UI."""
+    hue = hue_degrees(rgb)
     distance = circular_hue_distance(hue % 360.0, RED_HUE_CENTER)
-    return max(0.0, RED_HUE_AVOID_DEGREES - distance)
+    red_zone = max(0.0, RED_HUE_AVOID_DEGREES - distance)
+    if red_zone == 0.0:
+        return 0.0
+
+    extra_brightness = max(0, max(rgb) - RED_MIN_BRIGHTNESS)
+    return red_zone * (extra_brightness / max(1, 255 - RED_MIN_BRIGHTNESS))
 
 
 def brown_hue_penalty(rgb):
@@ -400,7 +481,7 @@ def palette_quality_metrics(
     min_contrast = min(contrasts)
     contrast_spread = max(contrasts) - min_contrast
     muted_penalty = sum(muted_color_penalty(color) for color in palette)
-    red_penalty = sum(red_hue_penalty(hue) for hue in hues)
+    red_penalty = sum(red_hue_penalty(color) for color in palette)
     brown_penalty = sum(brown_hue_penalty(color) for color in palette)
     if len(palette) >= 4:
         rgb_separation_penalty = max(0.0, MIN_THEME_RGB_DISTANCE - min_rgb)

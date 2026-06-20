@@ -21,7 +21,9 @@ from PyQt6.QtWidgets import (
 
 import color_utils as cu
 from color_utils import (
+    GENERATION_PARAMETER_GROUPS,
     GENERATION_PARAMETERS,
+    SCORING_PARAMETER_GROUPS,
     SCORING_PARAMETERS,
     apply_generation_parameters,
     default_generation_parameters,
@@ -43,6 +45,42 @@ def selectable_label(text=""):
         | Qt.TextInteractionFlag.TextSelectableByKeyboard
     )
     return label
+
+
+def make_parameter_spinbox(metadata, value, on_changed):
+    spinbox = QDoubleSpinBox()
+    spinbox.setRange(metadata["min"], metadata["max"])
+    spinbox.setSingleStep(metadata["step"])
+    spinbox.setDecimals(metadata.get("decimals", 2))
+    spinbox.setValue(value)
+    spinbox.valueChanged.connect(on_changed)
+    return spinbox
+
+
+def add_parameter_groups(
+    parent_layout, groups, metadata_by_key, values_by_key, inputs_by_key, on_changed
+):
+    for title, description, keys in groups:
+        group_box = QGroupBox(title)
+        group_layout = QVBoxLayout(group_box)
+        group_layout.addWidget(selectable_label(description))
+
+        form = QFormLayout()
+        group_layout.addLayout(form)
+        for key in keys:
+            metadata = metadata_by_key[key]
+            spinbox = make_parameter_spinbox(
+                metadata,
+                values_by_key[key],
+                lambda value, parameter_key=key: on_changed(parameter_key, value),
+            )
+            inputs_by_key[key] = spinbox
+            form.addRow(
+                selectable_label(f"{key}\n{metadata['description']}"),
+                spinbox,
+            )
+
+        parent_layout.addWidget(group_box)
 
 
 class ColorRow(QWidget):
@@ -147,24 +185,14 @@ class Window(QWidget):
         )
         generation_layout.addWidget(generation_help)
 
-        generation_form = QFormLayout()
-        generation_layout.addLayout(generation_form)
-        for key, metadata in GENERATION_PARAMETERS.items():
-            spinbox = QDoubleSpinBox()
-            spinbox.setRange(metadata["min"], metadata["max"])
-            spinbox.setSingleStep(metadata["step"])
-            spinbox.setDecimals(metadata["decimals"])
-            spinbox.setValue(self.generation_parameters[key])
-            spinbox.valueChanged.connect(
-                lambda value, parameter_key=key: self.on_generation_parameter_changed(
-                    parameter_key, value
-                )
-            )
-            self.generation_inputs[key] = spinbox
-            generation_form.addRow(
-                selectable_label(f"{key}\n{metadata['description']}"),
-                spinbox,
-            )
+        add_parameter_groups(
+            generation_layout,
+            GENERATION_PARAMETER_GROUPS,
+            GENERATION_PARAMETERS,
+            self.generation_parameters,
+            self.generation_inputs,
+            self.on_generation_parameter_changed,
+        )
 
         self.apply_generation_button = QPushButton(
             "Применить правила и пересчитать"
@@ -193,24 +221,14 @@ class Window(QWidget):
         )
         coefficients_layout.addWidget(coefficients_help)
 
-        coefficients_form = QFormLayout()
-        coefficients_layout.addLayout(coefficients_form)
-        for key, metadata in SCORING_PARAMETERS.items():
-            spinbox = QDoubleSpinBox()
-            spinbox.setRange(metadata["min"], metadata["max"])
-            spinbox.setSingleStep(metadata["step"])
-            spinbox.setDecimals(2)
-            spinbox.setValue(self.scoring_parameters[key])
-            spinbox.valueChanged.connect(
-                lambda value, parameter_key=key: self.on_scoring_parameter_changed(
-                    parameter_key, value
-                )
-            )
-            self.scoring_inputs[key] = spinbox
-            coefficients_form.addRow(
-                selectable_label(f"{key}\n{metadata['description']}"),
-                spinbox,
-            )
+        add_parameter_groups(
+            coefficients_layout,
+            SCORING_PARAMETER_GROUPS,
+            SCORING_PARAMETERS,
+            self.scoring_parameters,
+            self.scoring_inputs,
+            self.on_scoring_parameter_changed,
+        )
 
         self.apply_scoring_button = QPushButton(
             "Применить коэффициенты и пересчитать"
